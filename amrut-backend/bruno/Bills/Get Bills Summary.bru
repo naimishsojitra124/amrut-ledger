@@ -1,0 +1,37 @@
+meta {
+  name: Get Bills Summary
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/bills/summary
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Total bills exists", () => {
+    expect(body.totalBills).to.not.be.undefined;
+  });
+
+  test("Grand total exists", () => {
+    expect(body.grandTotal).to.not.be.undefined;
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

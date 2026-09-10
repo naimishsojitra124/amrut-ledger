@@ -1,0 +1,50 @@
+meta {
+  name: Update Product Suggestion
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/product-suggestions/{{productSuggestionId}}
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "name": "{{updatedProductSuggestionName}}",
+    "displayOrder": 7
+  }
+}
+
+script:pre-request {
+  const suffix = String(Date.now()).slice(-5);
+  bru.setEnvVar("updatedProductSuggestionName", `Updated Product ${suffix}`);
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Updated name", () => {
+    expect(body.name).to.equal(bru.getEnvVar("updatedProductSuggestionName"));
+  });
+
+  test("Updated display order", () => {
+    expect(body.displayOrder).to.equal(7);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

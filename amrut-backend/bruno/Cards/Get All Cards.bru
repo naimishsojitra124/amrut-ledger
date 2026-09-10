@@ -1,0 +1,58 @@
+meta {
+  name: Get All Cards
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/cards
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+script:post-response {
+  const body = res.getBody();
+
+  if (body.items?.find(x => x.status === "available")) {
+    const available = body.items.find(x => x.status === "available");
+    bru.setEnvVar("availableCardId", available.id);
+    bru.setEnvVar("availableCardNumber", String(available.cardNumber));
+  }
+
+  if (body.items?.find(x => x.status === "assigned")) {
+    const assigned = body.items.find(x => x.status === "assigned");
+    bru.setEnvVar("assignedCardId", assigned.id);
+    bru.setEnvVar("assignedCardNumber", String(assigned.cardNumber));
+
+    if (assigned.currentAssignment?.customerId) {
+      bru.setEnvVar("assignedCustomerId", assigned.currentAssignment.customerId);
+      bru.setEnvVar("assignedCustomerName", assigned.currentAssignment.customer.fullName);
+    }
+  }
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Items exists", () => {
+    expect(body.items).to.be.an("array");
+  });
+
+  test("Summary exists", () => {
+    expect(body.summary).to.not.be.undefined;
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,27 @@
+meta {
+  name: Get Customer Payments
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/customers/{{customerId}}/payments
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

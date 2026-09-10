@@ -1,0 +1,42 @@
+meta {
+  name: Get Available Cards
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/cards/available
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+script:post-response {
+  const body = res.getBody();
+
+  if (body.items?.[0]) {
+    bru.setEnvVar("availableCardId", body.items[0].id);
+    bru.setEnvVar("availableCardNumber", String(body.items[0].cardNumber));
+  }
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Items exists", () => {
+    expect(body.items).to.be.an("array");
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,37 @@
+meta {
+  name: Get Customer Ledger Summary
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/customers/{{assignedCustomerId}}/ledgers/summary
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  const body = res.getBody();
+  
+  test("Grand total exists", () => {
+    expect(body.grandTotal).to.not.be.undefined;
+  });
+  
+  test("Total ledgers exists", () => {
+    expect(body.totalLedgers).to.not.be.undefined;
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

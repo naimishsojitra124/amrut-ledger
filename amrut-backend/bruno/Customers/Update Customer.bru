@@ -1,0 +1,57 @@
+meta {
+  name: Update Customer
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/customers/{{customerId}}
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "fullName": "{{updatedCustomerName}}",
+    "mobileNumber": "{{updatedCustomerMobileNumber}}",
+    "address": "{{updatedCustomerAddress}}",
+    "depositAmount": 500,
+    "primaryMilkTypeId": "{{milkTypeId1}}",
+    "otherMilkTypeIds": ["{{milkTypeId2}}"],
+    "notes": "Updated from Bruno"
+  }
+}
+
+script:pre-request {
+  const suffix = String(Date.now()).slice(-5);
+  bru.setEnvVar("updatedCustomerName", `Updated Customer ${suffix}`);
+  bru.setEnvVar("updatedCustomerMobileNumber", `8${suffix}12345`);
+  bru.setEnvVar("updatedCustomerAddress", `Updated Address ${suffix}`);
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Updated name", () => {
+    expect(body.fullName).to.equal(bru.getEnvVar("updatedCustomerName"));
+  });
+
+  test("Updated deposit", () => {
+    expect(body.depositAmount).to.equal(500);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

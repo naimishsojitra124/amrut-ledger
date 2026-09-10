@@ -1,0 +1,33 @@
+meta {
+  name: Archive Product Suggestion
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{baseUrl}}/product-suggestions/{{productSuggestionId}}/archive
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Archived", () => {
+    expect(body.status).to.equal("inactive");
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

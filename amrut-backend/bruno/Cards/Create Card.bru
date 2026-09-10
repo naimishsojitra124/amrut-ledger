@@ -1,0 +1,59 @@
+meta {
+  name: Create Card
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/cards
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "cardNumber": {{newCardNumber}}
+  }
+}
+
+script:pre-request {
+  const suffix = Number(String(Date.now()).slice(-5));
+  bru.setEnvVar("newCardNumber", String(10000 + (suffix % 80000)));
+}
+
+script:post-response {
+  const body = res.getBody();
+  bru.setEnvVar("createdCardId", body.id);
+  bru.setEnvVar("createdCardNumber", String(body.cardNumber));
+}
+
+tests {
+  test("Status is 201", () => {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  const body = res.getBody();
+
+  test("Card created", () => {
+    expect(body.id).to.not.be.undefined;
+  });
+
+  test("Card number matches", () => {
+    expect(String(body.cardNumber)).to.equal(bru.getEnvVar("newCardNumber"));
+  });
+
+  test("Status is available", () => {
+    expect(body.status).to.equal("available");
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,37 @@
+meta {
+  name: Get Product Suggestion By Id
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/product-suggestions/{{productSuggestionId}}
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Correct id", () => {
+    expect(body.id).to.equal(bru.getEnvVar("productSuggestionId"));
+  });
+
+  test("Correct name", () => {
+    expect(body.name).to.equal(bru.getEnvVar("productSuggestionName"));
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

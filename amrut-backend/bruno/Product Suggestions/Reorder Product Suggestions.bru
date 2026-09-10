@@ -1,0 +1,51 @@
+meta {
+  name: Reorder Product Suggestions
+  type: http
+  seq: 6
+}
+
+patch {
+  url: {{baseUrl}}/product-suggestions/reorder
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "orderedIds": [
+      "{{productSuggestionId2}}",
+      "{{productSuggestionId1}}"
+    ]
+  }
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Items exists", () => {
+    expect(body.items).to.be.an("array");
+  });
+
+  test("First item is reordered", () => {
+    expect(body.items[0].id).to.equal(bru.getEnvVar("productSuggestionId2"));
+  });
+
+  test("Second item is reordered", () => {
+    expect(body.items[1].id).to.equal(bru.getEnvVar("productSuggestionId1"));
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

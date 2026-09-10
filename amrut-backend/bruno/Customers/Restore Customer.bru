@@ -1,0 +1,33 @@
+meta {
+  name: Restore Customer
+  type: http
+  seq: 8
+}
+
+patch {
+  url: {{baseUrl}}/customers/{{customerId}}/restore
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Restored", () => {
+    expect(body.status).to.equal("active");
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

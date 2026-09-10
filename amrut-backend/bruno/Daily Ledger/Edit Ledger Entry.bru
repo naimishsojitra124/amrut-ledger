@@ -1,0 +1,58 @@
+meta {
+  name: Edit Ledger Entry
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/customers/{{assignedCustomerId}}/ledgers/{{dailyLedgerDate}}/entries/0
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "milkEntries": [
+      {
+        "milkTypeId": "{{milkTypeId1}}",
+        "litres": 2
+      }
+    ],
+    "productEntries": [
+      {
+        "productSuggestionId": "{{productSuggestionId1}}",
+        "itemName": "Bread",
+        "quantity": 2,
+        "unitPrice": 35
+      }
+    ],
+    "notes": "Edited entry"
+  }
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Entries exist", () => {
+    expect(body.entries).to.be.an("array");
+  });
+
+  test("First entry updated", () => {
+    expect(body.entries[0].notes).to.equal("Edited entry");
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

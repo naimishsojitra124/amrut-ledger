@@ -1,0 +1,37 @@
+meta {
+  name: Get Today's Ledger
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/customers/{{assignedCustomerId}}/ledgers/today
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Correct customer", () => {
+    expect(body.customerId).to.equal(bru.getEnvVar("assignedCustomerId"));
+  });
+
+  test("Entries array exists", () => {
+    expect(body.entries).to.be.an("array");
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

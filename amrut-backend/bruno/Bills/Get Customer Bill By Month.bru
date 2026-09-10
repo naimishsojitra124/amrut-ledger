@@ -1,0 +1,41 @@
+meta {
+  name: Get Customer Bill By Month
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/customers/{{customerId}}/bills/{{billYear}}/{{billMonth}}
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Correct bill id exists", () => {
+    expect(body.id).to.not.be.undefined;
+  });
+
+  test("Correct month", () => {
+    expect(body.month).to.equal(Number(bru.getEnvVar("billMonth")));
+  });
+
+  test("Correct year", () => {
+    expect(body.year).to.equal(Number(bru.getEnvVar("billYear")));
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

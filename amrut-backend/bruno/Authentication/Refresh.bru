@@ -1,0 +1,38 @@
+meta {
+  name: Refresh
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/refresh
+  body: none
+  auth: inherit
+}
+
+headers {
+  Accept: application/json
+}
+
+script:post-response {
+  const body = res.getBody();
+  
+  bru.setEnvVar("accessToken", body.accessToken);
+}
+
+tests {
+  test("Status is 200", function () {
+      expect(res.getStatus()).to.equal(200);
+  });
+  
+  const body = res.getBody();
+  
+  test("Access token exists", function () {
+      expect(body.accessToken).to.not.equal(undefined);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

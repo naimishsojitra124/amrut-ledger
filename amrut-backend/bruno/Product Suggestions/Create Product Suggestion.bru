@@ -1,0 +1,59 @@
+meta {
+  name: Create Product Suggestion
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/product-suggestions
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "name": "{{productSuggestionName}}",
+    "displayOrder": 999
+  }
+}
+
+script:pre-request {
+  const suffix = String(Date.now()).slice(-6);
+  bru.setEnvVar("productSuggestionName", `Bruno Product ${suffix}`);
+}
+
+script:post-response {
+  const body = res.getBody();
+  bru.setEnvVar("productSuggestionId", body.id);
+}
+
+tests {
+  test("Status is 201", () => {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  const body = res.getBody();
+
+  test("Product suggestion created", () => {
+    expect(body.id).to.not.be.undefined;
+  });
+
+  test("Name matches", () => {
+    expect(body.name).to.equal(bru.getEnvVar("productSuggestionName"));
+  });
+
+  test("Display order matches", () => {
+    expect(body.displayOrder).to.equal(999);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

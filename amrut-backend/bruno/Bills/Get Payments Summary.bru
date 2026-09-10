@@ -1,0 +1,37 @@
+meta {
+  name: Get Payments Summary
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/payments/summary
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Total payments exists", () => {
+    expect(body.totalPayments).to.not.be.undefined;
+  });
+
+  test("Total amount exists", () => {
+    expect(body.totalAmount).to.not.be.undefined;
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

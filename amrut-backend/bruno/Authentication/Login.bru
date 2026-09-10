@@ -1,0 +1,49 @@
+meta {
+  name: Login
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "mobileNumber": "9876543210",
+    "password": "Password@123"
+  }
+}
+
+script:post-response {
+  const body = res.getBody();
+  
+  bru.setEnvVar("accessToken", body.accessToken);
+}
+
+tests {
+  test("Status is 200", function () {
+      expect(res.getStatus()).to.equal(200);
+  });
+  
+  const body = res.getBody();
+  
+  test("Access token exists", function () {
+      expect(body.accessToken).to.not.equal(undefined);
+  });
+  
+  test("User exists", function () {
+      expect(body.user).to.not.equal(undefined);
+  });
+}
+
+settings {
+  encodeUrl: false
+  timeout: 0
+}

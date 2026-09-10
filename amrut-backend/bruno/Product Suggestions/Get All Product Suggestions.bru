@@ -1,0 +1,59 @@
+meta {
+  name: Get All Product Suggestions
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/product-suggestions?page=1&limit=20
+  body: none
+  auth: inherit
+}
+
+params:query {
+  page: 1
+  limit: 20
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+script:post-response {
+  const body = res.getBody();
+  
+  if (body.items?.[0]) {
+    bru.setEnvVar("productSuggestionId1", body.items[0].id);
+  }
+  
+  if (body.items?.[1]) {
+    bru.setEnvVar("productSuggestionId2", body.items[1].id);
+  }
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  const body = res.getBody();
+  
+  test("Items exists", () => {
+    expect(body.items).to.be.an("array");
+  });
+  
+  test("Pagination exists", () => {
+    expect(body.pageInfo).to.not.be.undefined;
+  });
+  
+  test("Created product suggestion exists", () => {
+    const found = body.items.find(x => x.id === bru.getEnvVar("productSuggestionId"));
+    expect(found).to.not.be.undefined;
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,64 @@
+meta {
+  name: Create Milk Type
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/milk-types
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "name": "{{milkTypeName}}",
+    "shortCode": "{{milkTypeShortCode}}",
+    "rate": 65,
+    "displayOrder": 999
+  }
+}
+
+script:pre-request {
+  const suffix = String(Date.now()).slice(-6);
+  
+  bru.setEnvVar("milkTypeName", `Bruno Milk ${suffix}`);
+  bru.setEnvVar("milkTypeShortCode", `BM${suffix}`);
+}
+
+script:post-response {
+  const body = res.getBody();
+  
+  bru.setEnvVar("milkTypeId", body.id);
+}
+
+tests {
+  test("Status is 201", () => {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  const body = res.getBody();
+  
+  test("Milk type created", () => {
+    expect(body.id).to.not.be.undefined;
+  });
+  
+  test("Name matches", () => {
+    expect(body.name).to.equal(bru.getEnvVar("milkTypeName"));
+  });
+  
+  test("Rate matches", () => {
+    expect(body.rate).to.equal(65);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

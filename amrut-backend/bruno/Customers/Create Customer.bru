@@ -1,0 +1,76 @@
+meta {
+  name: Create Customer
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/customers
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "fullName": "{{customerName}}",
+    "mobileNumber": "{{customerMobileNumber}}",
+    "address": "{{customerAddress}}",
+    "cardNumber": 32,
+    "depositAmount": 250,
+    "primaryMilkTypeId": "{{milkTypeId1}}",
+    "otherMilkTypeIds": ["{{milkTypeId2}}"],
+    "notes": "Created from Bruno"
+  }
+}
+
+script:pre-request {
+  const suffix = String(Date.now()).slice(-9); // 9 digits
+  bru.setEnvVar("customerName", `Bruno Customer ${suffix}`);
+  bru.setEnvVar("customerMobileNumber", `9${suffix}`); // total 10 digits
+  bru.setEnvVar("customerAddress", `Bruno Address ${suffix}`);
+  
+  // only set this if your create-customer request includes cardNumber
+  bru.setEnvVar("cardNumber", String(Number(suffix.slice(-4)) + 10000));
+}
+
+script:post-response {
+  const body = res.getBody();
+  
+  bru.setEnvVar("customerId", body.id);
+  
+  if (body.currentCard?.cardId) {
+    bru.setEnvVar("customerCardId", body.currentCard.cardId);
+    bru.setEnvVar("customerCardNumber", String(body.currentCard.cardNumber));
+  }
+}
+
+tests {
+  test("Status is 201", () => {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  const body = res.getBody();
+  
+  test("Customer created", () => {
+    expect(body.id).to.not.be.undefined;
+  });
+  
+  test("Customer name matches", () => {
+    expect(body.fullName).to.equal(bru.getEnvVar("customerName"));
+  });
+  
+  test("Card assigned", () => {
+    expect(body.currentCard).to.not.be.undefined;
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

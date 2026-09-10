@@ -1,0 +1,58 @@
+meta {
+  name: Add Ledger Entry
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/customers/{{assignedCustomerId}}/ledgers/{{dailyLedgerDate}}/entries
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "milkEntries": [
+      {
+        "milkTypeId": "{{milkTypeId1}}",
+        "litres": 1.5
+      }
+    ],
+    "productEntries": [
+      {
+        "productSuggestionId": "{{productSuggestionId1}}",
+        "itemName": "Bread",
+        "quantity": 1,
+        "unitPrice": 35
+      }
+    ],
+    "notes": "Morning entry"
+  }
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Entries exist", () => {
+    expect(body.entries).to.be.an("array");
+  });
+
+  test("At least one entry exists", () => {
+    expect(body.entries.length).to.be.at.least(1);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

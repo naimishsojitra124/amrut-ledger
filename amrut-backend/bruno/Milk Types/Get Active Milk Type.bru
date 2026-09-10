@@ -1,0 +1,49 @@
+meta {
+  name: Get Active Milk Type
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/milk-types/active
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+script:post-response {
+  const body = res.getBody();
+  
+  if (body.items?.[0]) {
+    bru.setEnvVar("milkTypeId1", body.items[0].id);
+  }
+  
+  if (body.items?.[1]) {
+    bru.setEnvVar("milkTypeId2", body.items[1].id);
+  }
+}
+
+tests {
+  test("Status is 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  const body = res.getBody();
+  
+  test("items array exists", function () {
+    expect(body.items).to.be.an("array");
+  });
+  
+  test("at least two active milk types exist", function () {
+    expect(body.items.length).to.be.at.least(2);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

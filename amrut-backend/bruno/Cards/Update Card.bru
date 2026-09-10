@@ -1,0 +1,45 @@
+meta {
+  name = Update Card
+  type = http
+  seq = 5
+}
+
+patch {
+  url: {{baseUrl}}/cards/{{createdCardId}}
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "cardNumber": {{updatedCardNumber}}
+  }
+}
+
+script:pre-request {
+  const suffix = Number(String(Date.now()).slice(-5));
+  bru.setEnvVar("updatedCardNumber", String(20000 + (suffix % 70000)));
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Card updated", () => {
+    expect(String(body.cardNumber)).to.equal(bru.getEnvVar("updatedCardNumber"));
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

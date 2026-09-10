@@ -1,0 +1,33 @@
+import { authRoutes } from "@/modules/auth/auth.route";
+import { billRoutes } from "@/modules/bills/bill.route";
+import { cardRoutes } from "@/modules/cards/card.route";
+import { customerRoutes } from "@/modules/customer/customer.route";
+import { dailyLedgerRoutes } from "@/modules/daily-ledger/daily-ledger.route";
+import { milkTypeRoutes } from "@/modules/milk-types/milk-type.route";
+import { productSuggestionRoutes } from "@/modules/product-suggestions/product-suggestion.route";
+import { userRoutes } from "@/modules/users/user.route";
+import { functionOrderRoutes } from "@/modules/function-orders/function-order.route";
+import { systemJobRoutes } from "@/modules/system-jobs/system-job.route";
+import type { FastifyInstance } from "fastify";
+
+export async function registerRoutes(app: FastifyInstance) {
+  app.register(authRoutes, { prefix: "/auth" });
+
+  app.register(milkTypeRoutes, { prefix: "/milk-types" });
+
+  app.register(productSuggestionRoutes, { prefix: "/product-suggestions" });
+
+  app.register(billRoutes);
+
+  app.register(cardRoutes, { prefix: "/cards" });
+
+  app.register(dailyLedgerRoutes, { prefix: "/customers" });
+
+  app.register(customerRoutes, { prefix: "/customers" });
+
+  app.register(userRoutes, { prefix: "/users" });
+  app.register(functionOrderRoutes, { prefix: "/function-orders" });
+  app.register(systemJobRoutes, { prefix: "/system/jobs" });
+
+  app.get("/health", async () => ({ status: "ok" }));
+}

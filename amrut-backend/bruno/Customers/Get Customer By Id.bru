@@ -1,0 +1,37 @@
+meta {
+  name: Get Customer By Id
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/customers/{{customerId}}
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Correct id", () => {
+    expect(body.id).to.equal(bru.getEnvVar("customerId"));
+  });
+
+  test("Correct name", () => {
+    expect(body.fullName).to.equal(bru.getEnvVar("customerName"));
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

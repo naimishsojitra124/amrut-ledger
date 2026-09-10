@@ -1,0 +1,14 @@
+{
+  "version": "1",
+  "name": "amrut-ledger-api",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git",
+    ".vscode"
+  ],
+  "presets": {
+    "requestType": "http",
+    "requestUrl": "http://localhost:5000/api/v1"
+  }
+}

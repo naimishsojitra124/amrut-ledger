@@ -1,0 +1,37 @@
+meta {
+  name: Get Customer Stats
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/customers/stats
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Total customers exists", () => {
+    expect(body.totalCustomers).to.not.be.undefined;
+  });
+
+  test("Active customers exists", () => {
+    expect(body.activeCustomers).to.not.be.undefined;
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

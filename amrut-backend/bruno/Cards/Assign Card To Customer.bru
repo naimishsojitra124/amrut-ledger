@@ -1,0 +1,57 @@
+meta {
+  name: Assign Card To Customer
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/cards/{{availableCardId}}/assign
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "customerId": "{{assignedCustomerId}}",
+    "depositAtAssignment": 0,
+    "assignedAt": "2026-08-05T11:30:00.805Z"
+  }
+}
+
+script:post-response {
+  const body = res.getBody();
+  bru.setEnvVar("reassignedAssignmentId", body.id);
+  bru.setEnvVar("reassignedCardId", body.cardId);
+  bru.setEnvVar("reassignedCustomerId", body.customerId);
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  const body = res.getBody();
+  
+  test("Card assigned", () => {
+    expect(body.cardId).to.equal(bru.getEnvVar("availableCardId"));
+  });
+  
+  test("Customer matched", () => {
+    expect(body.customerId).to.equal(bru.getEnvVar("assignedCustomerId"));
+  });
+  
+  test("Assignment active", () => {
+    expect(body.unassignedAt).to.equal(null);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

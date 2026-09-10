@@ -1,0 +1,63 @@
+meta {
+  name: Create Today's Ledger
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/customers/{{assignedCustomerId}}/ledgers/today
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "notes": "Today ledger created"
+  }
+}
+
+script:pre-request {
+  const now = new Date();
+  
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  
+  bru.setEnvVar("dailyLedgerDate", `${year}-${month}-${day}`);
+}
+
+script:post-response {
+  const body = res.getBody();
+  bru.setEnvVar("dailyLedgerId", body.id);
+}
+
+tests {
+  test("Status is 200 or 201", () => {
+    expect([200, 201]).to.include(res.getStatus());
+  });
+  
+  const body = res.getBody();
+  
+  test("Ledger created", () => {
+    expect(body.id).to.not.be.undefined;
+  });
+  
+  test("Correct customer", () => {
+    expect(body.customerId).to.equal(bru.getEnvVar("assignedCustomerId"));
+  });
+  
+  test("Today's date returned", () => {
+    expect(body.ledgerDate).to.equal(bru.getEnvVar("dailyLedgerDate"));
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

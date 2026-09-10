@@ -1,0 +1,33 @@
+meta {
+  name: Get User By Id
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/users/{{userId}}
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Correct id", () => {
+    expect(body.id).to.equal(bru.getEnvVar("userId"));
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

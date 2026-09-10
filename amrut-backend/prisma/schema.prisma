@@ -1,0 +1,500 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  owner
+  manager
+  employee
+}
+
+enum UserStatus {
+  active
+  inactive
+}
+
+enum CustomerStatus {
+  active
+  archived
+}
+
+enum CardStatus {
+  assigned
+  available
+}
+
+enum MilkTypeStatus {
+  active
+  inactive
+}
+
+enum ProductSuggestionStatus {
+  active
+  inactive
+}
+
+enum BillStatus {
+  paid
+  partial
+  unpaid
+}
+
+enum PaymentMethod {
+  cash
+  upi
+}
+
+enum FunctionOrderStatus {
+  draft
+  confirmed
+  completed
+  cancelled
+}
+
+enum AuditLogType {
+  customer_created
+  customer_updated
+  customer_closed
+  customer_reopened
+  card_assigned
+  card_unassigned
+  milk_type_changed
+  deposit_updated
+  entry_added
+  entry_updated
+  entry_deleted
+  bill_generated
+  payment_added
+  payment_reversed
+  note_added
+}
+
+enum DepositTransactionType {
+  opening_balance
+  top_up
+  refund
+  bill_applied
+  payment_reversal
+  correction
+}
+
+enum AuditRelatedEntityType {
+  ledger
+  bill
+  payment
+  card
+  cardAssignment
+}
+
+type CustomerMilkType {
+  milkTypeId String  @db.ObjectId
+  isDefault  Boolean @default(false)
+}
+
+type LedgerMilkEntry {
+  milkTypeId   String @db.ObjectId
+  milkTypeName String
+  rate         Float
+  litres       Float
+  amount       Float
+}
+
+type LedgerProductEntry {
+  productSuggestionId String? @db.ObjectId
+  itemName            String
+  quantity            Int
+  unitPrice           Float
+  amount              Float
+}
+
+type DailyLedgerEntry {
+  createdAt      DateTime             @default(now())
+  createdById    String               @db.ObjectId
+  clientRequestId String               @default("")
+  milkEntries    LedgerMilkEntry[]
+  productEntries LedgerProductEntry[]
+  notes          String               @default("")
+  totalAmount    Float                @default(0)
+}
+
+type BillMilkSummary {
+  milkTypeId   String @db.ObjectId
+  milkTypeName String
+  litres       Float
+  rate         Float
+  amount       Float
+}
+
+type BillProductSummary {
+  productSuggestionId String? @db.ObjectId
+  itemName            String
+  quantity            Int
+  unitPrice           Float
+  amount              Float
+}
+
+type AuditFieldChange {
+  field    String
+  oldValue String
+  newValue String
+}
+
+type FunctionOrderItem {
+  id               String
+  itemName         String
+  quantity         Float
+  unit             String @default("kg")
+  unitPrice        Float
+  returnedQuantity Float @default(0)
+  returnNote       String @default("")
+  movements        FunctionOrderItemMovement[]
+}
+
+type FunctionOrderItemMovement {
+  id        String
+  type      String
+  quantity  Float
+  note      String @default("")
+  createdAt DateTime
+}
+
+type FunctionOrderDay {
+  deliveryDate DateTime
+  deliveryTime String @default("")
+  peopleCount  Int    @default(0)
+  items        FunctionOrderItem[]
+  notes        String @default("")
+}
+
+model User {
+  id                  String     @id @default(auto()) @map("_id") @db.ObjectId
+  fullName            String
+  mobileNumber        String     @unique
+  email               String     @unique
+  passwordHash        String
+  refreshTokenHash    String?
+  role                UserRole
+  status              UserStatus @default(active)
+  lastLoginAt         DateTime?
+  failedLoginAttempts Int        @default(0)
+  lockUntil           DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  createdCustomers        Customer[]       @relation("CustomerCreatedBy")
+  updatedCustomers        Customer[]       @relation("CustomerUpdatedBy")
+  assignedCardAssignments CardAssignment[] @relation("CardAssignmentAssignedBy")
+  updatedLedgers          DailyLedger[]    @relation("DailyLedgerUpdatedBy")
+  generatedBills          Bill[]           @relation("BillGeneratedBy")
+  receivedPayments        Payment[]        @relation("PaymentReceivedBy")
+  editedPayments          Payment[]        @relation("PaymentEditedBy")
+  reversedPayments        Payment[]        @relation("PaymentReversedBy")
+  performedAuditLogs      AuditLog[]       @relation("AuditLogPerformedBy")
+  createdFunctionOrders   FunctionOrder[]  @relation("FunctionOrderCreatedBy")
+  updatedFunctionOrders   FunctionOrder[]  @relation("FunctionOrderUpdatedBy")
+  sessions                AuthSession[]
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model AuthSession {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId        String    @unique
+  userId           String    @db.ObjectId
+  deviceId         String    @default("")
+  refreshTokenHash String
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+model Customer {
+  id            String             @id @default(auto()) @map("_id") @db.ObjectId
+  fullName      String
+  searchName    String
+  mobileNumber  String             @unique
+  address       String
+  depositAmount Int                @default(0)
+  status        CustomerStatus     @default(active)
+  milkTypes     CustomerMilkType[]
+  notes         String             @default("")
+  archivedAt    DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  createdById   String             @db.ObjectId
+  updatedById   String             @db.ObjectId
+
+  createdBy User @relation("CustomerCreatedBy", fields: [createdById], references: [id])
+  updatedBy User @relation("CustomerUpdatedBy", fields: [updatedById], references: [id])
+
+  cardAssignments CardAssignment[]
+  dailyLedgers    DailyLedger[]
+  bills           Bill[]
+  payments        Payment[]
+  auditLogs       AuditLog[]
+  depositTransactions DepositTransaction[]
+
+  @@index([status])
+  @@index([searchName])
+  @@index([fullName])
+  @@map("customers")
+}
+
+model DepositTransaction {
+  id           String                 @id @default(auto()) @map("_id") @db.ObjectId
+  customerId   String                 @db.ObjectId
+  type         DepositTransactionType
+  amount       Float
+  balanceAfter Float
+  reference    String                 @default("")
+  notes        String                 @default("")
+  performedById String                @db.ObjectId
+  createdAt    DateTime               @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId, createdAt])
+  @@map("deposit_transactions")
+}
+
+model Card {
+  id         String     @id @default(auto()) @map("_id") @db.ObjectId
+  cardNumber Int        @unique
+  status     CardStatus @default(available)
+  createdAt  DateTime   @default(now())
+
+  assignments CardAssignment[]
+
+  @@index([status])
+  @@map("cards")
+}
+
+model CardAssignment {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  cardId     String @db.ObjectId
+  customerId String @db.ObjectId
+
+  assignedAt   DateTime
+  unassignedAt DateTime?
+
+  depositAtAssignment Float @default(0)
+
+  assignedById String @db.ObjectId
+
+  assignedBy User     @relation("CardAssignmentAssignedBy", fields: [assignedById], references: [id])
+  card       Card     @relation(fields: [cardId], references: [id])
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  bills        Bill[]
+  dailyLedgers DailyLedger[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cardId, unassignedAt])
+  @@index([customerId, unassignedAt])
+  @@index([assignedAt])
+  @@map("card_assignments")
+}
+
+model MilkType {
+  id        String         @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  rate      Float
+  shortCode String         @unique
+  status    MilkTypeStatus @default(active)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([status])
+  @@map("milk_types")
+}
+
+model ProductSuggestion {
+  id           String                  @id @default(auto()) @map("_id") @db.ObjectId
+  name         String
+  displayOrder Int                     @default(0)
+  status       ProductSuggestionStatus @default(active)
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  @@index([status])
+  @@index([displayOrder])
+  @@map("product_suggestions")
+}
+
+model DailyLedger {
+  id               String             @id @default(auto()) @map("_id") @db.ObjectId
+  customerId       String             @db.ObjectId
+  cardAssignmentId String             @db.ObjectId
+  ledgerDate       DateTime
+  entries          DailyLedgerEntry[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  updatedById      String             @db.ObjectId
+
+  customer       Customer       @relation(fields: [customerId], references: [id])
+  cardAssignment CardAssignment @relation(fields: [cardAssignmentId], references: [id])
+  updatedBy      User           @relation("DailyLedgerUpdatedBy", fields: [updatedById], references: [id])
+
+  @@unique([customerId, ledgerDate])
+  @@index([cardAssignmentId, ledgerDate])
+  @@index([updatedById])
+  @@map("daily_ledgers")
+}
+
+model Bill {
+  id                String               @id @default(auto()) @map("_id") @db.ObjectId
+  billNumber        String               @unique
+  customerId        String               @db.ObjectId
+  cardAssignmentId  String               @db.ObjectId
+  month             Int
+  year              Int
+  billDate          DateTime
+  dueDate           DateTime?
+  totalMilkLitres   Float                @default(0)
+  milkSummary       BillMilkSummary[]
+  totalItemsCount   Int                  @default(0)
+  otherItems        BillProductSummary[]
+  otherItemsTotal   Float                @default(0)
+  previousDue       Float                @default(0)
+  grandTotal        Float                @default(0)
+  totalPaid         Float                @default(0)
+  outstandingAmount Float                @default(0)
+  status            BillStatus           @default(unpaid)
+  notes             String?
+  billVersion       Int                  @default(1)
+  generatedAt       DateTime             @default(now())
+  generatedById     String               @db.ObjectId
+
+  customer       Customer       @relation(fields: [customerId], references: [id])
+  cardAssignment CardAssignment @relation(fields: [cardAssignmentId], references: [id])
+  generatedBy    User           @relation("BillGeneratedBy", fields: [generatedById], references: [id])
+  payments       Payment[]
+
+  @@unique([customerId, month, year])
+  @@index([cardAssignmentId, month, year])
+  @@index([status])
+  @@index([dueDate, status])
+  @@map("bills")
+}
+
+model Payment {
+  id              String        @id @default(auto()) @map("_id") @db.ObjectId
+  customerId      String        @db.ObjectId
+  billId          String        @db.ObjectId
+  billMonth       Int
+  billYear        Int
+  receiptNumber   String        @unique
+  clientRequestId String        @unique
+  amount          Float
+  depositUsed     Float         @default(0)
+  paymentMethod   PaymentMethod
+  referenceNumber String        @default("")
+  notes           String        @default("")
+  receivedAt      DateTime      @default(now())
+  receivedById    String        @db.ObjectId
+  editedAt        DateTime?
+  editedById      String?       @db.ObjectId
+  reversedAt      DateTime?
+  reversalReason  String        @default("")
+  reversedById    String?       @db.ObjectId
+
+  customer   Customer @relation(fields: [customerId], references: [id])
+  bill       Bill     @relation(fields: [billId], references: [id])
+  receivedBy User     @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+  editedBy   User?    @relation("PaymentEditedBy", fields: [editedById], references: [id])
+  reversedBy User?    @relation("PaymentReversedBy", fields: [reversedById], references: [id])
+
+  @@index([billId])
+  @@index([customerId, receivedAt])
+  @@index([billMonth, billYear])
+  @@map("payments")
+}
+
+model Counter {
+  id         String @id @map("_id")
+  nextNumber Int    @default(1)
+
+  @@map("counters")
+}
+
+model FunctionOrder {
+  id                 String              @id @default(auto()) @map("_id") @db.ObjectId
+  orderNumber        String              @unique
+  customerName       String
+  mobileNumber       String
+  eventName          String              @default("")
+  deliveryDays       FunctionOrderDay[]
+  reminderDaysBefore Int                 @default(1)
+  status             FunctionOrderStatus @default(draft)
+  notes              String              @default("")
+  createdById        String              @db.ObjectId
+  updatedById        String              @db.ObjectId
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  createdBy User @relation("FunctionOrderCreatedBy", fields: [createdById], references: [id])
+  updatedBy User @relation("FunctionOrderUpdatedBy", fields: [updatedById], references: [id])
+
+  @@index([status])
+  @@index([mobileNumber])
+  @@index([createdAt])
+  @@map("function_orders")
+}
+
+model FunctionOrderAuditLog {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  functionOrderId String @db.ObjectId
+  orderNumber   String
+  action        String
+  details       String   @default("")
+  performedById String   @db.ObjectId
+  performedAt   DateTime @default(now())
+
+  @@index([functionOrderId, performedAt])
+  @@index([orderNumber])
+  @@map("function_order_audit_logs")
+}
+
+model AuditLog {
+  id                String                  @id @default(auto()) @map("_id") @db.ObjectId
+  customerId        String                  @db.ObjectId
+  type              AuditLogType
+  title             String
+  details           AuditFieldChange[]
+  performedById     String                  @db.ObjectId
+  performedAt       DateTime                @default(now())
+  relatedEntityType AuditRelatedEntityType?
+  relatedEntityId   String?                 @db.ObjectId
+
+  customer    Customer @relation(fields: [customerId], references: [id])
+  performedBy User     @relation("AuditLogPerformedBy", fields: [performedById], references: [id])
+
+  @@index([customerId, performedAt])
+  @@index([relatedEntityType, relatedEntityId])
+  @@index([type])
+  @@map("audit_logs")
+}

@@ -1,0 +1,37 @@
+meta {
+  name: Get Active Product Suggestions
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/product-suggestions/active
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Items exists", () => {
+    expect(body.items).to.be.an("array");
+  });
+
+  test("At least one active product exists", () => {
+    expect(body.items.length).to.be.at.least(1);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

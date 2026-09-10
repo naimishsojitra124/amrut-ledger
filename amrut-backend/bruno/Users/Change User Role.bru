@@ -1,0 +1,40 @@
+meta {
+  name: Change User Role
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{baseUrl}}/users/{{createdUserId}}/role
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "role": "manager"
+  }
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Role changed", () => {
+    expect(body.role).to.equal("manager");
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

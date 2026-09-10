@@ -1,0 +1,33 @@
+meta {
+  name: Get Customer Card Assignment
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/customers/{{reassignedCustomerId}}/card-assignment
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Correct customer id", () => {
+    expect(body.customerId).to.equal(bru.getEnvVar("reassignedCustomerId"));
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

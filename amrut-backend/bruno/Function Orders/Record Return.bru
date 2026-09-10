@@ -1,0 +1,36 @@
+meta {
+  name: Record Return
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/function-orders/{{functionOrderId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+body:json {
+  {
+    "deliveryDays": [
+      {
+        "deliveryDate": "2026-09-15",
+        "notes": "Evening delivery",
+        "items": [
+          { "itemName": "Kesar Angur Rabadi", "quantity": 30, "unit": "kg", "unitPrice": 420, "returnedQuantity": 5, "returnNote": "Unused return" }
+        ]
+      }
+    ]
+  }
+}
+
+tests {
+  test("records returned quantity", function() {
+    expect(res.status).to.equal(200);
+    expect(res.body.deliveryDays[0].items[0].returnedQuantity).to.equal(5);
+  });
+}

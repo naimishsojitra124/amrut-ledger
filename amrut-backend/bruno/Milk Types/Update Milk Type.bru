@@ -1,0 +1,51 @@
+meta {
+  name: Update Milk Type
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/milk-types/{{milkTypeId}}
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "{{updatedMilkTypeName}}",
+    "rate": 70,
+    "shortCode": "BM221302"
+  }
+}
+
+script:pre-request {
+  const suffix = String(Date.now()).slice(-5);
+  
+  bru.setEnvVar("updatedMilkTypeName", `Updated Milk ${suffix}`);
+}
+
+tests {
+  test("Status is 200", () => {
+      expect(res.getStatus()).to.equal(200);
+  });
+  
+  const body = res.getBody();
+  
+  test("Updated name", () => {
+      expect(body.name).to.equal(bru.getEnvVar("updatedMilkTypeName"));
+  });
+  
+  test("Updated rate", () => {
+      expect(body.rate).to.equal(70);
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

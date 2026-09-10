@@ -1,0 +1,43 @@
+meta {
+  name: Create Function Order
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/function-orders
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+body:json {
+  {
+    "customerName": "Bruno Function Customer",
+    "mobileNumber": "9876543210",
+    "eventName": "Wedding Reception",
+    "reminderDaysBefore": 2,
+    "status": "confirmed",
+    "notes": "Prepare rabadi early",
+    "deliveryDays": [
+      {
+        "deliveryDate": "2026-09-15",
+        "notes": "Evening delivery",
+        "items": [
+          { "itemName": "Kesar Angur Rabadi", "quantity": 30, "unit": "kg", "unitPrice": 420, "returnedQuantity": 0, "returnNote": "" }
+        ]
+      }
+    ]
+  }
+}
+
+tests {
+  test("creates function order", function() {
+    expect(res.status).to.equal(201);
+    expect(res.body.orderNumber).to.include("FO-");
+    bru.setVar("functionOrderId", res.body.id);
+  });
+}

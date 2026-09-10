@@ -1,0 +1,33 @@
+meta {
+  name: Get Card History
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/cards/{{reassignedCardId}}/history
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Accept: application/json
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  const body = res.getBody();
+
+  test("Items exists", () => {
+    expect(body.items).to.be.an("array");
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,49 @@
+meta {
+  name: Update User
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/users/{{createdUserId}}
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "fullName": "{{updatedUserFullName}}",
+    "mobileNumber": "{{updatedUserMobileNumber}}",
+    "email": "{{updatedUserEmail}}"
+  }
+}
+
+script:pre-request {
+  const suffix = String(Date.now()).slice(-4);
+  bru.setEnvVar("updatedUserFullName", `Updated User ${suffix}`);
+  bru.setEnvVar("updatedUserMobileNumber", `6${suffix}12345`);
+  bru.setEnvVar("updatedUserEmail", `updated.user.${suffix}@example.com`);
+}
+
+tests {
+  test("Status is 200", () => {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  const body = res.getBody();
+  
+  test("Updated name", () => {
+    expect(body.fullName).to.equal(bru.getEnvVar("updatedUserFullName"));
+  });
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,21 @@
+meta {
+  name: Logout
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/auth/logout
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Cookie: refreshToken=YOUR_REFRESH_TOKEN
+}
+
+settings {
+  encodeUrl: false
+  timeout: 0
+}
