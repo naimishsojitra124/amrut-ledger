@@ -62,10 +62,11 @@ export default function QuickEntry() {
   const addLedgerEntryMutation = useAddDailyLedgerEntryMutation();
   const { pendingCount } = useOfflineLedgerSync();
 
-  const cachedCustomers = useMemo(
-    () => offlineQuickEntryCache.get().customers as Customer[],
-    [],
-  );
+  const cachedCustomers = useMemo(() => {
+    const customers = offlineQuickEntryCache.get().customers;
+
+    return Array.isArray(customers) ? (customers as Customer[]) : [];
+  }, []);
 
   const selectedCustomer = isOnline
     ? (customerLookupQuery.data ?? null)
@@ -81,9 +82,11 @@ export default function QuickEntry() {
       return;
     }
 
-    const cached = offlineQuickEntryCache.get().customers as Customer[];
+    const cached = offlineQuickEntryCache.get().customers;
+    const cachedCustomers = Array.isArray(cached) ? (cached as Customer[]) : [];
+
     const nextCustomers = [
-      ...cached.filter((item) => item.id !== customer.id),
+      ...cachedCustomers.filter((item) => item.id !== customer.id),
       customer,
     ];
 
