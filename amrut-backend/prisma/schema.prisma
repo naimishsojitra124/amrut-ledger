@@ -120,13 +120,13 @@ type LedgerProductEntry {
 }
 
 type DailyLedgerEntry {
-  createdAt      DateTime             @default(now())
-  createdById    String               @db.ObjectId
+  createdAt       DateTime             @default(now())
+  createdById     String               @db.ObjectId
   clientRequestId String               @default("")
-  milkEntries    LedgerMilkEntry[]
-  productEntries LedgerProductEntry[]
-  notes          String               @default("")
-  totalAmount    Float                @default(0)
+  milkEntries     LedgerMilkEntry[]
+  productEntries  LedgerProductEntry[]
+  notes           String               @default("")
+  totalAmount     Float                @default(0)
 }
 
 type BillMilkSummary {
@@ -155,10 +155,10 @@ type FunctionOrderItem {
   id               String
   itemName         String
   quantity         Float
-  unit             String @default("kg")
+  unit             String                      @default("kg")
   unitPrice        Float
-  returnedQuantity Float @default(0)
-  returnNote       String @default("")
+  returnedQuantity Float                       @default(0)
+  returnNote       String                      @default("")
   movements        FunctionOrderItemMovement[]
 }
 
@@ -166,16 +166,16 @@ type FunctionOrderItemMovement {
   id        String
   type      String
   quantity  Float
-  note      String @default("")
+  note      String   @default("")
   createdAt DateTime
 }
 
 type FunctionOrderDay {
   deliveryDate DateTime
-  deliveryTime String @default("")
-  peopleCount  Int    @default(0)
+  deliveryTime String              @default("")
+  peopleCount  Int                 @default(0)
   items        FunctionOrderItem[]
-  notes        String @default("")
+  notes        String              @default("")
 }
 
 model User {
@@ -233,7 +233,7 @@ model Customer {
   id            String             @id @default(auto()) @map("_id") @db.ObjectId
   fullName      String
   searchName    String
-  mobileNumber  String             @unique
+  mobileNumber  String?            @unique
   address       String
   depositAmount Int                @default(0)
   status        CustomerStatus     @default(active)
@@ -248,11 +248,11 @@ model Customer {
   createdBy User @relation("CustomerCreatedBy", fields: [createdById], references: [id])
   updatedBy User @relation("CustomerUpdatedBy", fields: [updatedById], references: [id])
 
-  cardAssignments CardAssignment[]
-  dailyLedgers    DailyLedger[]
-  bills           Bill[]
-  payments        Payment[]
-  auditLogs       AuditLog[]
+  cardAssignments     CardAssignment[]
+  dailyLedgers        DailyLedger[]
+  bills               Bill[]
+  payments            Payment[]
+  auditLogs           AuditLog[]
   depositTransactions DepositTransaction[]
 
   @@index([status])
@@ -262,15 +262,15 @@ model Customer {
 }
 
 model DepositTransaction {
-  id           String                 @id @default(auto()) @map("_id") @db.ObjectId
-  customerId   String                 @db.ObjectId
-  type         DepositTransactionType
-  amount       Float
-  balanceAfter Float
-  reference    String                 @default("")
-  notes        String                 @default("")
-  performedById String                @db.ObjectId
-  createdAt    DateTime               @default(now())
+  id            String                 @id @default(auto()) @map("_id") @db.ObjectId
+  customerId    String                 @db.ObjectId
+  type          DepositTransactionType
+  amount        Float
+  balanceAfter  Float
+  reference     String                 @default("")
+  notes         String                 @default("")
+  performedById String                 @db.ObjectId
+  createdAt     DateTime               @default(now())
 
   customer Customer @relation(fields: [customerId], references: [id])
 
@@ -445,7 +445,7 @@ model FunctionOrder {
   id                 String              @id @default(auto()) @map("_id") @db.ObjectId
   orderNumber        String              @unique
   customerName       String
-  mobileNumber       String
+  mobileNumber       String?
   eventName          String              @default("")
   deliveryDays       FunctionOrderDay[]
   reminderDaysBefore Int                 @default(1)
@@ -466,13 +466,13 @@ model FunctionOrder {
 }
 
 model FunctionOrderAuditLog {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  functionOrderId String @db.ObjectId
-  orderNumber   String
-  action        String
-  details       String   @default("")
-  performedById String   @db.ObjectId
-  performedAt   DateTime @default(now())
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  functionOrderId String   @db.ObjectId
+  orderNumber     String
+  action          String
+  details         String   @default("")
+  performedById   String   @db.ObjectId
+  performedAt     DateTime @default(now())
 
   @@index([functionOrderId, performedAt])
   @@index([orderNumber])

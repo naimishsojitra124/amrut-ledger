@@ -145,7 +145,7 @@ function renderPaginationItems(currentPage: number, pageCount: number) {
 }
 
 export default function ProductSuggestionTab() {
-  const { openProductSuggestionForm } = useModalStore();
+  const { openProductSuggestionForm, openConfirmation } = useModalStore();
   const [searchText, setSearchText] = useState("");
   const searchQuery = useDebouncedValue(searchText);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -308,23 +308,22 @@ export default function ProductSuggestionTab() {
     }
   }
 
-  async function handleToggleProductStatus(
-    productId: string,
-    status: "active" | "inactive",
-  ) {
-    try {
-      if (status === "active") {
-        await archiveMutation.mutateAsync(productId);
-        toast.success("Product suggestion deactivated");
-      } else {
-        await restoreMutation.mutateAsync(productId);
-        toast.success("Product suggestion activated");
-      }
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to update status",
-      );
-    }
+  function handleToggleProductStatus(productId: string, status: "active" | "inactive") {
+    const isActive = status === "active";
+
+    openConfirmation({
+      title: `${isActive ? "Deactivate" : "Activate"} product suggestion?`,
+      description: isActive
+        ? "This product suggestion will no longer appear as an active Quick Entry tag. You can activate it again later."
+        : "This product suggestion will become available again as an active Quick Entry tag.",
+      confirmLabel: isActive ? "Deactivate" : "Activate",
+      variant: isActive ? "destructive" : "default",
+      successMessage: `Product suggestion ${isActive ? "deactivated" : "activated"}`,
+      onConfirm: () =>
+        isActive
+          ? archiveMutation.mutateAsync(productId).then(() => undefined)
+          : restoreMutation.mutateAsync(productId).then(() => undefined),
+    });
   }
 
   async function handleDrop(targetId: string) {

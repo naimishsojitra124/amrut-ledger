@@ -8,7 +8,7 @@ import QuickEntryCustomerCard from "@/components/quick-entry/quick-entry-custome
 import QuickEntryForm from "@/components/quick-entry/quick-entry-form";
 import QuickEntryLedger from "@/components/quick-entry/quick-entry-ledger";
 
-import { useCustomersQuery } from "@/services/customer.service";
+import { useCustomerByCardNumberQuery } from "@/services/customer.service";
 import type { Customer } from "@/types/customer";
 
 import {
@@ -53,12 +53,11 @@ export default function QuickEntry() {
     getServerOnlineStatus,
   );
 
-  const customersQuery = useCustomersQuery({
-    page: 1,
-    limit: 100,
-    status: "active",
-    search: searchQuery.trim() || undefined,
-  });
+  const normalizedSearch = searchQuery.trim();
+  const customerLookupQuery = useCustomerByCardNumberQuery(
+    normalizedSearch,
+    isOnline,
+  );
 
   const addLedgerEntryMutation = useAddDailyLedgerEntryMutation();
   const { pendingCount } = useOfflineLedgerSync();
@@ -68,32 +67,42 @@ export default function QuickEntry() {
     [],
   );
 
-  const customers = isOnline
-    ? (customersQuery.data?.items ?? [])
-    : (customersQuery.data?.items ?? cachedCustomers);
-
-  useEffect(() => {
-    const items = customersQuery.data?.items;
-
-    if (items?.length) {
-      offlineQuickEntryCache.saveCustomers(items);
-    }
-  }, [customersQuery.data?.items]);
-
-  const selectedCustomer = useMemo(() => {
-    const normalizedSearch = searchQuery.trim();
-
-    if (!normalizedSearch) {
-      return null;
-    }
-
-    return (
-      customers.find(
+  const selectedCustomer = isOnline
+    ? (customerLookupQuery.data ?? null)
+    : (cachedCustomers.find(
         (customer) =>
           String(customer.currentCard?.cardNumber ?? "") === normalizedSearch,
-      ) ?? null
-    );
-  }, [customers, searchQuery]);
+      ) ?? null);
+
+  useEffect(() => {
+    const customer = customerLookupQuery.data;
+
+    if (!customer) {
+      return;
+    }
+
+    const cached = offlineQuickEntryCache.get().customers as Customer[];
+    const nextCustomers = [
+      ...cached.filter((item) => item.id !== customer.id),
+      customer,
+    ];
+
+    offlineQuickEntryCache.saveCustomers(nextCustomers);
+  }, [customerLookupQuery.data]);
+
+  useEffect(() => {
+    if (customerLookupQuery.isError && normalizedSearch) {
+      toast.error(
+        customerLookupQuery.error instanceof Error
+          ? customerLookupQuery.error.message
+          : "Failed to search customer.",
+      );
+    }
+  }, [
+    customerLookupQuery.error,
+    customerLookupQuery.isError,
+    normalizedSearch,
+  ]);
 
   const ledgerQuery = useCustomerDailyLedgerQuery(
     selectedCustomer?.id ?? null,
@@ -101,7 +110,19 @@ export default function QuickEntry() {
   );
 
   function handleSearchCustomer() {
-    setSearchQuery(cardNumber.trim());
+    const normalizedCardNumber = cardNumber.trim();
+
+    if (!/^\d+$/.test(normalizedCardNumber)) {
+      toast.error("Enter a valid card number.");
+      return;
+    }
+
+    if (normalizedCardNumber === searchQuery) {
+      void customerLookupQuery.refetch();
+      return;
+    }
+
+    setSearchQuery(normalizedCardNumber);
   }
 
   async function handleSaveEntry(payload: AddDailyLedgerEntryRequest) {
@@ -181,7 +202,7 @@ export default function QuickEntry() {
         cardNumber={cardNumber}
         onCardNumberChange={setCardNumber}
         onSearch={handleSearchCustomer}
-        isSearching={customersQuery.isFetching}
+        isSearching={customerLookupQuery.isFetching}
         selectedDate={selectedDate}
         onDateChange={setSelectedDate}
         customer={selectedCustomer}

@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import axios from "axios";
 
 import { apiConnector } from "./utils/apiConnector";
 import {
@@ -78,6 +79,9 @@ export const customerQueryKeys = {
     ] as const,
 
   stats: () => ["customers", "stats"] as const,
+
+  cardLookup: (cardNumber: string) =>
+    ["customers", "card-lookup", cardNumber] as const,
 
   detail: (customerId: string | null) =>
     ["customers", "detail", customerId ?? ""] as const,
@@ -188,6 +192,44 @@ export const useCustomersQuery = (query: CustomerListQuery = {}) => {
     placeholderData: keepPreviousData,
   });
 };
+
+export const useCustomerByCardNumberQuery = (
+  cardNumber: string,
+  enabled = true,
+) =>
+  useQuery<CustomerResponse | null>({
+    queryKey: customerQueryKeys.cardLookup(cardNumber),
+    queryFn: async ({ signal }) => {
+      if (!cardNumber) {
+        return null;
+      }
+
+      try {
+        const res = await apiConnector<CustomerResponse>(
+          "GET",
+          "/customers/lookup",
+          undefined,
+          undefined,
+          { cardNumber },
+          signal,
+        );
+
+        return res.data;
+      } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.status === 404) {
+          return null;
+        }
+
+        throw error;
+      }
+    },
+    enabled: Boolean(enabled && cardNumber),
+    // Card lookup is an explicit user action and must not serve a stale
+    // customer after a card is reassigned.
+    staleTime: 0,
+    gcTime: QUERY_GC_TIMES.standard,
+    ...STANDARD_QUERY_BEHAVIOR,
+  });
 
 export const useCustomerStatsQuery = () =>
   useQuery<CustomerStatsResponse>({

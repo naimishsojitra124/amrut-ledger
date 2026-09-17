@@ -6,6 +6,7 @@ import {
   Plus,
   Search,
   ShieldCheck,
+  RotateCcw,
   Sparkles,
   UserRound,
   Users,
@@ -41,6 +42,8 @@ import { cn } from "@/lib/utils";
 import {
   useUsersQuery,
   useUserStatsQuery,
+  useArchiveUserMutation,
+  useRestoreUserMutation,
   type UserResponse,
   type UserRole,
   type UserStatus,
@@ -162,7 +165,7 @@ function renderPaginationItems(currentPage: number, pageCount: number) {
 
 export default function UsersTab() {
   const { isOwner } = useAuth();
-  const { openUserForm } = useModalStore();
+  const { openUserForm, openConfirmation } = useModalStore();
 
   const [searchText, setSearchText] = useState("");
   const searchQuery = useDebouncedValue(searchText);
@@ -183,6 +186,8 @@ export default function UsersTab() {
   });
 
   const statsQuery = useUserStatsQuery();
+  const archiveUserMutation = useArchiveUserMutation();
+  const restoreUserMutation = useRestoreUserMutation();
 
   const users = usersQuery.data?.items ?? [];
 
@@ -251,6 +256,26 @@ export default function UsersTab() {
     openUserForm(user.id);
   }
 
+  function handleToggleUserStatus(user: UserResponse) {
+    const isActive = user.status === "active";
+
+    if (!isOwner) return;
+
+    openConfirmation({
+      title: `${isActive ? "Deactivate" : "Activate"} ${user.fullName}?`,
+      description: isActive
+        ? "This user will lose access to the application and active sessions will be revoked. You can activate the user again later."
+        : "This user will regain access to the application.",
+      confirmLabel: isActive ? "Deactivate" : "Activate",
+      variant: isActive ? "destructive" : "default",
+      successMessage: `${user.fullName} ${isActive ? "deactivated" : "activated"}`,
+      onConfirm: () =>
+        isActive
+          ? archiveUserMutation.mutateAsync(user.id).then(() => undefined)
+          : restoreUserMutation.mutateAsync(user.id).then(() => undefined),
+    });
+  }
+
   function goToPage(nextPageIndex: number) {
     setPageIndex(Math.min(Math.max(nextPageIndex, 0), totalPages - 1));
   }
@@ -280,36 +305,36 @@ export default function UsersTab() {
           </Button>
         </div>
 
-        <div className="grid gap-3 px-3 sm:px-4 md:grid-cols-3">
+        <div className="grid gap-3 px-3 sm:px-4 grid-cols-3">
           <div className="rounded-2xl border bg-[#F9FBFF] p-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-neutral-600">
+            <div className="flex flex-col sm:flex-row items-center gap-2 text-sm font-medium text-neutral-600">
               <Users className="h-4 w-4 text-[#266699]" />
               Total Users
             </div>
 
-            <div className="mt-2 text-2xl font-semibold text-neutral-900">
+            <div className="mt-2 text-2xl font-semibold text-neutral-900 text-center sm:text-left">
               {stats.totalUsers}
             </div>
           </div>
 
           <div className="rounded-2xl border bg-[#F9FBFF] p-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-neutral-600">
+            <div className="flex flex-col sm:flex-row items-center gap-2 text-sm font-medium text-neutral-600">
               <UserRound className="h-4 w-4 text-[#266699]" />
               Active
             </div>
 
-            <div className="mt-2 text-2xl font-semibold text-neutral-900">
+            <div className="mt-2 text-2xl font-semibold text-neutral-900 text-center sm:text-left">
               {stats.activeUsers}
             </div>
           </div>
 
           <div className="rounded-2xl border bg-[#F9FBFF] p-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-neutral-600">
+            <div className="flex flex-col sm:flex-row items-center gap-2 text-sm font-medium text-neutral-600">
               <CircleOff className="h-4 w-4 text-[#266699]" />
               Inactive
             </div>
 
-            <div className="mt-2 text-2xl font-semibold text-neutral-900">
+            <div className="mt-2 text-2xl font-semibold text-neutral-900 text-center sm:text-left">
               {stats.inactiveUsers}
             </div>
           </div>
@@ -491,6 +516,41 @@ export default function UsersTab() {
                                 aria-label={`Edit ${user.fullName}`}
                               >
                                 <PencilLine className="h-4 w-4" />
+                              </Button>
+                            </ActionTooltip>
+
+                            <ActionTooltip
+                              label={
+                                user.status === "active"
+                                  ? "Deactivate"
+                                  : "Activate"
+                              }
+                              align="center"
+                              side="bottom"
+                            >
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className={cn(
+                                  "h-9 w-9",
+                                  user.status === "active"
+                                    ? "border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                    : "border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700",
+                                )}
+                                onClick={() => handleToggleUserStatus(user)}
+                                disabled={
+                                  !isOwner ||
+                                  archiveUserMutation.isPending ||
+                                  restoreUserMutation.isPending
+                                }
+                                aria-label={`${user.status === "active" ? "Deactivate" : "Activate"} ${user.fullName}`}
+                              >
+                                {user.status === "active" ? (
+                                  <CircleOff className="h-4 w-4" />
+                                ) : (
+                                  <RotateCcw className="h-4 w-4" />
+                                )}
                               </Button>
                             </ActionTooltip>
                           </TableCell>

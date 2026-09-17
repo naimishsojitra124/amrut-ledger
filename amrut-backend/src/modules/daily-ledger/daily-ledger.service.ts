@@ -41,7 +41,55 @@ function toIso(value: Date | null | undefined) {
   return value ? value.toISOString() : null;
 }
 
-function normalizeCustomer(customer: any) {
+const USER_SUMMARY_SELECT = {
+  id: true,
+  fullName: true,
+  status: true,
+} as const;
+
+const CUSTOMER_SUMMARY_SELECT = {
+  id: true,
+  fullName: true,
+  mobileNumber: true,
+} as const;
+
+const CARD_ASSIGNMENT_SELECT = {
+  id: true,
+  cardId: true,
+  assignedAt: true,
+  unassignedAt: true,
+  depositAtAssignment: true,
+  card: {
+    select: {
+      cardNumber: true,
+    },
+  },
+} as const;
+
+const LEDGER_SELECT = {
+  id: true,
+  customerId: true,
+  cardAssignmentId: true,
+  ledgerDate: true,
+  entries: true,
+  createdAt: true,
+  updatedAt: true,
+  customer: {
+    select: CUSTOMER_SUMMARY_SELECT,
+  },
+  cardAssignment: {
+    select: CARD_ASSIGNMENT_SELECT,
+  },
+  updatedBy: {
+    select: USER_SUMMARY_SELECT,
+  },
+} as const;
+
+function normalizeCustomer(customer: {
+  id: string;
+  fullName: string;
+  mobileNumber: string;
+}) {
   return {
     id: customer.id,
     fullName: customer.fullName,
@@ -49,7 +97,16 @@ function normalizeCustomer(customer: any) {
   };
 }
 
-function normalizeCardAssignment(cardAssignment: any) {
+function normalizeCardAssignment(cardAssignment: {
+  id: string;
+  cardId: string;
+  assignedAt: Date;
+  unassignedAt: Date | null;
+  depositAtAssignment: number;
+  card: {
+    cardNumber: number;
+  } | null;
+}) {
   return {
     id: cardAssignment.id,
     cardId: cardAssignment.cardId,
@@ -60,11 +117,25 @@ function normalizeCardAssignment(cardAssignment: any) {
   };
 }
 
-function normalizeUser(user: any): DailyLedgerUserSummaryResponse {
+function normalizeUser(
+  user: {
+    id: string;
+    fullName: string;
+    status: string;
+  },
+): DailyLedgerUserSummaryResponse {
   return {
     id: user.id,
     fullName: user.fullName,
-    status: user.status,
+    status: user.status as DailyLedgerUserSummaryResponse["status"],
+  };
+}
+
+function fallbackUserSummary(id: string): DailyLedgerUserSummaryResponse {
+  return {
+    id,
+    fullName: "Unknown user",
+    status: "inactive",
   };
 }
 
@@ -72,7 +143,11 @@ function calculateEntryTotals(entry: {
   milkEntries: Array<{ litres: number; rate: number }>;
   productEntries: Array<{ quantity: number; unitPrice: number }>;
 }) {
-  const milkAmount = entry.milkEntries.reduce((sum, item) => sum + item.litres * item.rate, 0);
+  const milkAmount = entry.milkEntries.reduce(
+    (sum, item) => sum + item.litres * item.rate,
+    0,
+  );
+
   const productAmount = entry.productEntries.reduce(
     (sum, item) => sum + item.quantity * item.unitPrice,
     0,
@@ -85,39 +160,27 @@ function calculateEntryTotals(entry: {
   };
 }
 
-async function loadUserSummaryMap(prisma: PrismaClient, userIds: string[]) {
-  const ids = [...new Set(userIds.filter(Boolean))];
-
-  if (ids.length === 0) {
-    return new Map<string, DailyLedgerUserSummaryResponse>();
-  }
-
-  const users = await prisma.user.findMany({
-    where: { id: { in: ids } },
-  });
-
-  return new Map(users.map((user) => [user.id, normalizeUser(user)]));
-}
-
-function fallbackUserSummary(id: string): DailyLedgerUserSummaryResponse {
-  return {
-    id,
-    fullName: "Unknown user",
-    status: "inactive",
-  };
-}
-
-async function normalizeEntry(
-  prisma: PrismaClient,
+/**
+ * Entry normalization is now synchronous.
+ *
+ * Previously this function queried the database for the creator of
+ * every entry. That created an N+1 query problem.
+ *
+ * createdBy is now resolved in the single ledger query through
+ * updatedBy only where applicable, while entry creator data is
+ * loaded separately only when it is actually required.
+ */
+function normalizeEntry(
   entry: any,
   entryIndex: number,
-): Promise<DailyLedgerEntryResponse> {
-  const createdByMap = await loadUserSummaryMap(prisma, [entry.createdById]);
-
+  createdBy?: DailyLedgerUserSummaryResponse,
+): DailyLedgerEntryResponse {
   return {
     entryIndex,
     createdAt: entry.createdAt.toISOString(),
-    createdBy: createdByMap.get(entry.createdById) ?? fallbackUserSummary(entry.createdById),
+    createdBy:
+      createdBy ??
+      fallbackUserSummary(entry.createdById),
     notes: entry.notes ?? "",
     milkEntries: (entry.milkEntries ?? []).map((item: any) => ({
       milkTypeId: item.milkTypeId,
@@ -137,27 +200,20 @@ async function normalizeEntry(
   };
 }
 
-async function normalizeLedger(prisma: PrismaClient, ledger: any): Promise<DailyLedgerResponse> {
-  const entriesSource = ledger.entries ?? [];
-  const entries = await Promise.all(
-    entriesSource.map((entry: any, index: number) => normalizeEntry(prisma, entry, index)),
-  );
-
-  const totals = entries.reduce(
+function calculateLedgerTotals(entries: any[]) {
+  return entries.reduce(
     (acc, entry) => {
-      acc.totalMilkLitres += entry.milkEntries.reduce(
-        (sum: number, item: { litres: number }) => sum + item.litres,
-        0,
-      );
-      acc.totalMilkAmount += entry.milkEntries.reduce(
-        (sum: number, item: { amount: number }) => sum + item.amount,
-        0,
-      );
-      acc.totalProductAmount += entry.productEntries.reduce(
-        (sum: number, item: { amount: number }) => sum + item.amount,
-        0,
-      );
-      acc.grandTotal += entry.totalAmount;
+      for (const milkEntry of entry.milkEntries ?? []) {
+        acc.totalMilkLitres += milkEntry.litres ?? 0;
+        acc.totalMilkAmount += milkEntry.amount ?? 0;
+      }
+
+      for (const productEntry of entry.productEntries ?? []) {
+        acc.totalProductAmount += productEntry.amount ?? 0;
+      }
+
+      acc.grandTotal += entry.totalAmount ?? 0;
+
       return acc;
     },
     {
@@ -167,6 +223,23 @@ async function normalizeLedger(prisma: PrismaClient, ledger: any): Promise<Daily
       grandTotal: 0,
     },
   );
+}
+
+function normalizeLedger(
+  ledger: any,
+  userSummaryMap?: Map<string, DailyLedgerUserSummaryResponse>,
+): DailyLedgerResponse {
+  const entriesSource = ledger.entries ?? [];
+
+  const entries = entriesSource.map((entry: any, index: number) =>
+    normalizeEntry(
+      entry,
+      index,
+      userSummaryMap?.get(entry.createdById),
+    ),
+  );
+
+  const totals = calculateLedgerTotals(entriesSource);
 
   return {
     id: ledger.id,
@@ -186,56 +259,76 @@ async function normalizeLedger(prisma: PrismaClient, ledger: any): Promise<Daily
   };
 }
 
-async function normalizeLedgerListItem(
-  prisma: PrismaClient,
+function normalizeLedgerListItem(
   ledger: any,
-): Promise<DailyLedgerListItemResponse> {
-  const normalized = await normalizeLedger(prisma, ledger);
+  userSummaryMap?: Map<string, DailyLedgerUserSummaryResponse>,
+): DailyLedgerListItemResponse {
+  const entries = ledger.entries ?? [];
+  const totals = calculateLedgerTotals(entries);
 
   return {
-    id: normalized.id,
-    customerId: normalized.customerId,
-    customer: normalized.customer,
-    cardAssignmentId: normalized.cardAssignmentId,
-    cardAssignment: normalized.cardAssignment,
-    ledgerDate: normalized.ledgerDate,
-    entryCount: normalized.entries.length,
-    totalMilkLitres: normalized.totalMilkLitres,
-    totalMilkAmount: normalized.totalMilkAmount,
-    totalProductAmount: normalized.totalProductAmount,
-    grandTotal: normalized.grandTotal,
-    updatedAt: normalized.updatedAt,
+    id: ledger.id,
+    customerId: ledger.customerId,
+    customer: normalizeCustomer(ledger.customer),
+    cardAssignmentId: ledger.cardAssignmentId,
+    cardAssignment: normalizeCardAssignment(ledger.cardAssignment),
+    ledgerDate: toBusinessDateString(ledger.ledgerDate),
+    entryCount: entries.length,
+    totalMilkLitres: totals.totalMilkLitres,
+    totalMilkAmount: totals.totalMilkAmount,
+    totalProductAmount: totals.totalProductAmount,
+    grandTotal: totals.grandTotal,
+    updatedAt: ledger.updatedAt.toISOString(),
   };
 }
 
-async function getCustomerOrThrow(prisma: PrismaClient, customerId: string) {
-  const customer = await prisma.customer.findUnique({
-    where: { id: customerId },
-  });
+async function loadUserSummaryMap(
+  prisma: PrismaClient,
+  userIds: string[],
+) {
+  const ids = [...new Set(userIds.filter(Boolean))];
 
-  if (!customer) {
-    throw createHttpError(404, "Customer not found");
+  if (ids.length === 0) {
+    return new Map<string, DailyLedgerUserSummaryResponse>();
   }
 
-  return customer;
+  const users = await prisma.user.findMany({
+    where: {
+      id: {
+        in: ids,
+      },
+    },
+    select: USER_SUMMARY_SELECT,
+  });
+
+  return new Map(
+    users.map((user) => [
+      user.id,
+      normalizeUser(user),
+    ]),
+  );
 }
 
-async function getActiveAssignmentOrThrow(prisma: PrismaClient, customerId: string) {
+async function getActiveAssignmentOrThrow(
+  prisma: PrismaClient,
+  customerId: string,
+) {
   const assignment = await prisma.cardAssignment.findFirst({
     where: {
       customerId,
       unassignedAt: null,
     },
-    include: {
-      card: true,
-    },
+    select: CARD_ASSIGNMENT_SELECT,
     orderBy: {
       assignedAt: "desc",
     },
   });
 
   if (!assignment) {
-    throw createHttpError(409, "Active card assignment not found");
+    throw createHttpError(
+      409,
+      "Active card assignment not found",
+    );
   }
 
   return assignment;
@@ -247,7 +340,9 @@ async function getAssignmentForLedgerDateOrThrow(
   dateString: string,
 ) {
   const ledgerDate = dateStringToBusinessDate(dateString);
-  const nextDay = new Date(ledgerDate.getTime() + 24 * 60 * 60 * 1000);
+  const nextDay = new Date(
+    ledgerDate.getTime() + 24 * 60 * 60 * 1000,
+  );
 
   const assignment = await prisma.cardAssignment.findFirst({
     where: {
@@ -255,24 +350,38 @@ async function getAssignmentForLedgerDateOrThrow(
       assignedAt: {
         lte: nextDay,
       },
-      OR: [{ unassignedAt: null }, { unassignedAt: { gt: ledgerDate } }],
+      OR: [
+        {
+          unassignedAt: null,
+        },
+        {
+          unassignedAt: {
+            gt: ledgerDate,
+          },
+        },
+      ],
     },
-    include: {
-      card: true,
-    },
+    select: CARD_ASSIGNMENT_SELECT,
     orderBy: {
       assignedAt: "desc",
     },
   });
 
   if (!assignment) {
-    throw createHttpError(409, "Card assignment not found for the selected date");
+    throw createHttpError(
+      409,
+      "Card assignment not found for the selected date",
+    );
   }
 
   return assignment;
 }
 
-async function getLedgerOrThrow(prisma: PrismaClient, customerId: string, dateString: string) {
+async function getLedgerOrThrow(
+  prisma: PrismaClient,
+  customerId: string,
+  dateString: string,
+) {
   const ledgerDate = dateStringToBusinessDate(dateString);
 
   const ledger = await prisma.dailyLedger.findUnique({
@@ -282,19 +391,14 @@ async function getLedgerOrThrow(prisma: PrismaClient, customerId: string, dateSt
         ledgerDate,
       },
     },
-    include: {
-      customer: true,
-      cardAssignment: {
-        include: {
-          card: true,
-        },
-      },
-      updatedBy: true,
-    },
+    select: LEDGER_SELECT,
   });
 
   if (!ledger) {
-    throw createHttpError(404, "Daily ledger not found");
+    throw createHttpError(
+      404,
+      "Daily ledger not found",
+    );
   }
 
   return ledger;
@@ -304,76 +408,132 @@ async function resolveMilkEntries(
   prisma: PrismaClient,
   entries: AddDailyLedgerEntryRequest["milkEntries"],
 ) {
-  if (!entries || entries.length === 0) {
+  if (!entries?.length) {
     return [];
   }
 
-  const resolved = await Promise.all(
-    entries.map(async (entry) => {
-      const milkType = await prisma.milkType.findUnique({
-        where: { id: entry.milkTypeId },
-      });
+  const milkTypeIds = [
+    ...new Set(entries.map((entry) => entry.milkTypeId)),
+  ];
 
-      if (!milkType) {
-        throw createHttpError(404, `Milk type not found: ${entry.milkTypeId}`);
-      }
+  const milkTypes = await prisma.milkType.findMany({
+    where: {
+      id: {
+        in: milkTypeIds,
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      rate: true,
+      status: true,
+    },
+  });
 
-      if (milkType.status !== "active") {
-        throw createHttpError(409, `Milk type is inactive: ${milkType.name}`);
-      }
-
-      const amount = entry.litres * milkType.rate;
-
-      return {
-        milkTypeId: milkType.id,
-        milkTypeName: milkType.name,
-        rate: milkType.rate,
-        litres: entry.litres,
-        amount,
-      };
-    }),
+  const milkTypeMap = new Map(
+    milkTypes.map((milkType) => [
+      milkType.id,
+      milkType,
+    ]),
   );
 
-  return resolved;
+  return entries.map((entry) => {
+    const milkType = milkTypeMap.get(entry.milkTypeId);
+
+    if (!milkType) {
+      throw createHttpError(
+        404,
+        `Milk type not found: ${entry.milkTypeId}`,
+      );
+    }
+
+    if (milkType.status !== "active") {
+      throw createHttpError(
+        409,
+        `Milk type is inactive: ${milkType.name}`,
+      );
+    }
+
+    const amount = entry.litres * milkType.rate;
+
+    return {
+      milkTypeId: milkType.id,
+      milkTypeName: milkType.name,
+      rate: milkType.rate,
+      litres: entry.litres,
+      amount,
+    };
+  });
 }
 
 async function resolveProductEntries(
   prisma: PrismaClient,
   entries: AddDailyLedgerEntryRequest["productEntries"] = [],
 ) {
-  if (!entries || entries.length === 0) {
+  if (!entries.length) {
     return [];
   }
 
-  const resolved = await Promise.all(
-    entries.map(async (entry) => {
-      if (entry.productSuggestionId) {
-        const productSuggestion = await prisma.productSuggestion.findUnique({
-          where: { id: entry.productSuggestionId },
-        });
+  const productSuggestionIds = [
+    ...new Set(
+      entries
+        .map((entry) => entry.productSuggestionId)
+        .filter(
+          (id): id is string => Boolean(id),
+        ),
+    ),
+  ];
 
-        if (!productSuggestion) {
-          throw createHttpError(404, `Product suggestion not found: ${entry.productSuggestionId}`);
-        }
+  if (productSuggestionIds.length > 0) {
+    const productSuggestions =
+      await prisma.productSuggestion.findMany({
+        where: {
+          id: {
+            in: productSuggestionIds,
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+        },
+      });
 
-        if (productSuggestion.status !== "active") {
-          throw createHttpError(409, `Product suggestion is inactive: ${productSuggestion.name}`);
-        }
+    const productSuggestionMap = new Map(
+      productSuggestions.map((productSuggestion) => [
+        productSuggestion.id,
+        productSuggestion,
+      ]),
+    );
+
+    for (const productSuggestionId of productSuggestionIds) {
+      const productSuggestion =
+        productSuggestionMap.get(productSuggestionId);
+
+      if (!productSuggestion) {
+        throw createHttpError(
+          404,
+          `Product suggestion not found: ${productSuggestionId}`,
+        );
       }
 
-      const amount = entry.quantity * entry.unitPrice;
+      if (productSuggestion.status !== "active") {
+        throw createHttpError(
+          409,
+          `Product suggestion is inactive: ${productSuggestion.name}`,
+        );
+      }
+    }
+  }
 
-      return {
-        productSuggestionId: entry.productSuggestionId ?? null,
-        itemName: entry.itemName,
-        quantity: entry.quantity,
-        unitPrice: entry.unitPrice,
-        amount,
-      };
-    }),
-  );
-
-  return resolved;
+  return entries.map((entry) => ({
+    productSuggestionId:
+      entry.productSuggestionId ?? null,
+    itemName: entry.itemName,
+    quantity: entry.quantity,
+    unitPrice: entry.unitPrice,
+    amount: entry.quantity * entry.unitPrice,
+  }));
 }
 
 async function createAuditLog(
@@ -381,7 +541,10 @@ async function createAuditLog(
   input: {
     customerId: string;
     performedById: string;
-    type: "entry_added" | "entry_updated" | "entry_deleted";
+    type:
+      | "entry_added"
+      | "entry_updated"
+      | "entry_deleted";
     title: string;
     ledgerId: string;
     oldValue: string;
@@ -412,43 +575,74 @@ async function loadCustomerLedgers(
   customerId: string,
   query: DailyLedgerListQuery,
 ) {
-  const ledgers = await prisma.dailyLedger.findMany({
-    where: { customerId },
-    orderBy: [{ ledgerDate: "desc" }],
-    include: {
-      customer: true,
-      cardAssignment: {
-        include: {
-          card: true,
-        },
-      },
-      updatedBy: true,
+  const where: {
+    customerId: string;
+    ledgerDate?: {
+      gte: Date;
+      lt: Date;
+    };
+  } = {
+    customerId,
+  };
+
+  if (
+    query.month !== undefined &&
+    query.year !== undefined
+  ) {
+    const startDate = new Date(
+      Date.UTC(
+        query.year,
+        query.month - 1,
+        1,
+      ),
+    );
+
+    const endDate = new Date(
+      Date.UTC(
+        query.month === 12
+          ? query.year + 1
+          : query.year,
+        query.month === 12
+          ? 0
+          : query.month,
+        1,
+      ),
+    );
+
+    where.ledgerDate = {
+      gte: startDate,
+      lt: endDate,
+    };
+  }
+
+  return prisma.dailyLedger.findMany({
+    where,
+    orderBy: {
+      ledgerDate: "desc",
     },
+    select: LEDGER_SELECT,
   });
-
-  const filtered = ledgers.filter((ledger) => {
-    if (query.month === undefined || query.year === undefined) {
-      return true;
-    }
-
-    const ledgerDate = new Date(ledger.ledgerDate);
-    const ledgerMonth = ledgerDate.getUTCMonth() + 1;
-    const ledgerYear = ledgerDate.getUTCFullYear();
-
-    return ledgerMonth === query.month && ledgerYear === query.year;
-  });
-
-  return filtered;
 }
 
-function paginate<T>(items: T[], page: number, limit: number) {
+function paginate<T>(
+  items: T[],
+  page: number,
+  limit: number,
+) {
   const totalItems = items.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalItems / limit),
+  );
+
   const safePage = Math.min(page, totalPages);
   const start = (safePage - 1) * limit;
 
   return {
-    paginatedItems: items.slice(start, start + limit),
+    paginatedItems: items.slice(
+      start,
+      start + limit,
+    ),
     pageInfo: {
       page: safePage,
       limit,
@@ -460,18 +654,6 @@ function paginate<T>(items: T[], page: number, limit: number) {
   };
 }
 
-function buildLedgerInclude() {
-  return {
-    customer: true,
-    cardAssignment: {
-      include: {
-        card: true,
-      },
-    },
-    updatedBy: true,
-  } as const;
-}
-
 export async function createTodayLedger(
   app: FastifyInstance,
   customerId: string,
@@ -480,37 +662,59 @@ export async function createTodayLedger(
 ): Promise<DailyLedgerResponse> {
   const prisma = getPrisma(app);
 
-  await getCustomerOrThrow(prisma, customerId);
-  await getActiveAssignmentOrThrow(prisma, customerId);
+  const assignment = await getActiveAssignmentOrThrow(
+    prisma,
+    customerId,
+  );
 
-  const ledgerDate = dateStringToBusinessDate(getTodayBusinessDateString());
+  const ledgerDate = dateStringToBusinessDate(
+    getTodayBusinessDateString(),
+  );
 
-  const existing = await prisma.dailyLedger.findUnique({
-    where: {
-      customerId_ledgerDate: {
-        customerId,
-        ledgerDate,
+  const existing =
+    await prisma.dailyLedger.findUnique({
+      where: {
+        customerId_ledgerDate: {
+          customerId,
+          ledgerDate,
+        },
       },
-    },
-    include: buildLedgerInclude(),
-  });
+      select: LEDGER_SELECT,
+    });
 
   if (existing) {
-    return normalizeLedger(prisma, existing);
+    const userIds = [
+      existing.updatedBy.id,
+      ...(existing.entries ?? []).map(
+        (entry: any) => entry.createdById,
+      ),
+    ];
+
+    const userSummaryMap =
+      await loadUserSummaryMap(
+        prisma,
+        userIds,
+      );
+
+    return normalizeLedger(
+      existing,
+      userSummaryMap,
+    );
   }
 
-  const ledger = await prisma.dailyLedger.create({
-    data: {
-      customerId,
-      cardAssignmentId: (await getActiveAssignmentOrThrow(prisma, customerId)).id,
-      ledgerDate,
-      entries: [],
-      updatedById: performedById,
-    },
-    include: buildLedgerInclude(),
-  });
+  const ledger =
+    await prisma.dailyLedger.create({
+      data: {
+        customerId,
+        cardAssignmentId: assignment.id,
+        ledgerDate,
+        entries: [],
+        updatedById: performedById,
+      },
+      select: LEDGER_SELECT,
+    });
 
-  return normalizeLedger(prisma, ledger);
+  return normalizeLedger(ledger);
 }
 
 export async function getTodayLedger(
@@ -518,25 +722,46 @@ export async function getTodayLedger(
   customerId: string,
 ): Promise<DailyLedgerResponse> {
   const prisma = getPrisma(app);
-  await getCustomerOrThrow(prisma, customerId);
 
-  const ledgerDate = dateStringToBusinessDate(getTodayBusinessDateString());
+  const ledgerDate = dateStringToBusinessDate(
+    getTodayBusinessDateString(),
+  );
 
-  const ledger = await prisma.dailyLedger.findUnique({
-    where: {
-      customerId_ledgerDate: {
-        customerId,
-        ledgerDate,
+  const ledger =
+    await prisma.dailyLedger.findUnique({
+      where: {
+        customerId_ledgerDate: {
+          customerId,
+          ledgerDate,
+        },
       },
-    },
-    include: buildLedgerInclude(),
-  });
+      select: LEDGER_SELECT,
+    });
 
   if (!ledger) {
-    throw createHttpError(404, "Today's ledger not found");
+    throw createHttpError(
+      404,
+      "Today's ledger not found",
+    );
   }
 
-  return normalizeLedger(prisma, ledger);
+  const userIds = [
+    ledger.updatedBy.id,
+    ...(ledger.entries ?? []).map(
+      (entry: any) => entry.createdById,
+    ),
+  ];
+
+  const userSummaryMap =
+    await loadUserSummaryMap(
+      prisma,
+      userIds,
+    );
+
+  return normalizeLedger(
+    ledger,
+    userSummaryMap,
+  );
 }
 
 export async function getLedgerByDate(
@@ -545,10 +770,50 @@ export async function getLedgerByDate(
   date: string,
 ): Promise<DailyLedgerResponse> {
   const prisma = getPrisma(app);
-  await getCustomerOrThrow(prisma, customerId);
 
-  const ledger = await getLedgerOrThrow(prisma, customerId, date);
-  return normalizeLedger(prisma, ledger);
+  /**
+   * Important performance optimization:
+   *
+   * The previous implementation first queried the customer and
+   * then queried the ledger. The ledger already contains the
+   * required customer relation, so the extra customer query is
+   * unnecessary.
+   */
+  const ledger = await getLedgerOrThrow(
+    prisma,
+    customerId,
+    date,
+  );
+
+  const userIds = [
+    ledger.updatedBy.id,
+    ...(ledger.entries ?? []).map(
+      (entry: any) => entry.createdById,
+    ),
+  ];
+
+  /**
+   * One user query regardless of the number of entries.
+   *
+   * Previously:
+   *   entry 1 -> user query
+   *   entry 2 -> user query
+   *   entry 3 -> user query
+   *   ...
+   *
+   * Now:
+   *   all unique users -> one query
+   */
+  const userSummaryMap =
+    await loadUserSummaryMap(
+      prisma,
+      userIds,
+    );
+
+  return normalizeLedger(
+    ledger,
+    userSummaryMap,
+  );
 }
 
 export async function getCustomerLedgers(
@@ -557,14 +822,48 @@ export async function getCustomerLedgers(
   query: DailyLedgerListQuery,
 ): Promise<DailyLedgerListResponse> {
   const prisma = getPrisma(app);
-  await getCustomerOrThrow(prisma, customerId);
 
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
 
-  const all = await loadCustomerLedgers(prisma, customerId, query);
-  const items = await Promise.all(all.map((ledger) => normalizeLedgerListItem(prisma, ledger)));
-  const { paginatedItems, pageInfo } = paginate(items, page, limit);
+  const all = await loadCustomerLedgers(
+    prisma,
+    customerId,
+    query,
+  );
+
+  /**
+   * Collect all creator IDs once instead of querying once per
+   * ledger entry.
+   */
+  const userIds = all.flatMap((ledger: any) => [
+    ledger.updatedBy.id,
+    ...(ledger.entries ?? []).map(
+      (entry: any) => entry.createdById,
+    ),
+  ]);
+
+  const userSummaryMap =
+    await loadUserSummaryMap(
+      prisma,
+      userIds,
+    );
+
+  const items = all.map((ledger) =>
+    normalizeLedgerListItem(
+      ledger,
+      userSummaryMap,
+    ),
+  );
+
+  const {
+    paginatedItems,
+    pageInfo,
+  } = paginate(
+    items,
+    page,
+    limit,
+  );
 
   return {
     items: paginatedItems,
@@ -578,59 +877,84 @@ export async function getCustomerLedgerSummary(
   query: DailyLedgerListQuery,
 ): Promise<DailyLedgerSummaryResponse> {
   const prisma = getPrisma(app);
-  await getCustomerOrThrow(prisma, customerId);
 
-  const ledgers = await loadCustomerLedgers(prisma, customerId, query);
+  const ledgers = await loadCustomerLedgers(
+    prisma,
+    customerId,
+    query,
+  );
 
   return {
     totalLedgers: ledgers.length,
-    totalEntries: ledgers.reduce((sum, ledger) => sum + (ledger.entries?.length ?? 0), 0),
-    totalMilkLitres: ledgers.reduce((sum, ledger) => {
-      const ledgerTotal = (ledger.entries ?? []).reduce((entrySum: number, entry: any) => {
-        return (
-          entrySum +
-          (entry.milkEntries ?? []).reduce(
-            (milkSum: number, milkEntry: any) => milkSum + (milkEntry.litres ?? 0),
-            0,
-          )
-        );
-      }, 0);
 
-      return sum + ledgerTotal;
-    }, 0),
-    totalMilkAmount: ledgers.reduce((sum, ledger) => {
-      const ledgerTotal = (ledger.entries ?? []).reduce((entrySum: number, entry: any) => {
-        return (
-          entrySum +
-          (entry.milkEntries ?? []).reduce(
-            (milkSum: number, milkEntry: any) => milkSum + (milkEntry.amount ?? 0),
-            0,
-          )
-        );
-      }, 0);
+    totalEntries: ledgers.reduce(
+      (sum, ledger) =>
+        sum + (ledger.entries?.length ?? 0),
+      0,
+    ),
 
-      return sum + ledgerTotal;
-    }, 0),
-    totalProductAmount: ledgers.reduce((sum, ledger) => {
-      const ledgerTotal = (ledger.entries ?? []).reduce((entrySum: number, entry: any) => {
-        return (
-          entrySum +
-          (entry.productEntries ?? []).reduce(
-            (productSum: number, productEntry: any) => productSum + (productEntry.amount ?? 0),
-            0,
-          )
-        );
-      }, 0);
+    totalMilkLitres: ledgers.reduce(
+      (sum, ledger) =>
+        sum +
+        (ledger.entries ?? []).reduce(
+          (entrySum: number, entry: any) =>
+            entrySum +
+            (entry.milkEntries ?? []).reduce(
+              (milkSum: number, milkEntry: any) =>
+                milkSum +
+                (milkEntry.litres ?? 0),
+              0,
+            ),
+          0,
+        ),
+      0,
+    ),
 
-      return sum + ledgerTotal;
-    }, 0),
-    grandTotal: ledgers.reduce((sum, ledger) => {
-      const ledgerTotal = (ledger.entries ?? []).reduce((entrySum: number, entry: any) => {
-        return entrySum + (entry.totalAmount ?? 0);
-      }, 0);
+    totalMilkAmount: ledgers.reduce(
+      (sum, ledger) =>
+        sum +
+        (ledger.entries ?? []).reduce(
+          (entrySum: number, entry: any) =>
+            entrySum +
+            (entry.milkEntries ?? []).reduce(
+              (milkSum: number, milkEntry: any) =>
+                milkSum +
+                (milkEntry.amount ?? 0),
+              0,
+            ),
+          0,
+        ),
+      0,
+    ),
 
-      return sum + ledgerTotal;
-    }, 0),
+    totalProductAmount: ledgers.reduce(
+      (sum, ledger) =>
+        sum +
+        (ledger.entries ?? []).reduce(
+          (entrySum: number, entry: any) =>
+            entrySum +
+            (entry.productEntries ?? []).reduce(
+              (productSum: number, productEntry: any) =>
+                productSum +
+                (productEntry.amount ?? 0),
+              0,
+            ),
+          0,
+        ),
+      0,
+    ),
+
+    grandTotal: ledgers.reduce(
+      (sum, ledger) =>
+        sum +
+        (ledger.entries ?? []).reduce(
+          (entrySum: number, entry: any) =>
+            entrySum +
+            (entry.totalAmount ?? 0),
+          0,
+        ),
+      0,
+    ),
   };
 }
 
@@ -643,67 +967,165 @@ export async function addLedgerEntry(
 ): Promise<DailyLedgerResponse> {
   const prisma = getPrisma(app);
 
-  await getCustomerOrThrow(prisma, customerId);
-  const assignment = await getAssignmentForLedgerDateOrThrow(prisma, customerId, date);
+  const assignment =
+    await getAssignmentForLedgerDateOrThrow(
+      prisma,
+      customerId,
+      date,
+    );
 
-  const ledgerDate = dateStringToBusinessDate(date);
-  const milkEntries = await resolveMilkEntries(prisma, input.milkEntries);
-  const productEntries = await resolveProductEntries(prisma, input.productEntries ?? []);
-  const totals = calculateEntryTotals({ milkEntries, productEntries });
+  const ledgerDate =
+    dateStringToBusinessDate(date);
+
+  const [
+    milkEntries,
+    productEntries,
+  ] = await Promise.all([
+    resolveMilkEntries(
+      prisma,
+      input.milkEntries,
+    ),
+    resolveProductEntries(
+      prisma,
+      input.productEntries ?? [],
+    ),
+  ]);
+
+  const totals = calculateEntryTotals({
+    milkEntries,
+    productEntries,
+  });
 
   const entry = {
     createdAt: new Date(),
     createdById: performedById,
-    clientRequestId: input.clientRequestId ?? "",
+    clientRequestId:
+      input.clientRequestId ?? "",
     milkEntries,
     productEntries,
     notes: input.notes ?? "",
     totalAmount: totals.totalAmount,
   };
 
-  const result = await prisma.$transaction(async (tx: PrismaClient) => {
-    const existing = await tx.dailyLedger.findUnique({
-      where: {
-        customerId_ledgerDate: {
-          customerId,
-          ledgerDate,
-        },
+  const result =
+    await prisma.$transaction(
+      async (tx: PrismaClient) => {
+        const existing =
+          await tx.dailyLedger.findUnique({
+            where: {
+              customerId_ledgerDate: {
+                customerId,
+                ledgerDate,
+              },
+            },
+            select: {
+              id: true,
+              entries: true,
+            },
+          });
+
+        if (!existing) {
+          const ledger =
+            await tx.dailyLedger.create({
+              data: {
+                customerId,
+                cardAssignmentId:
+                  assignment.id,
+                ledgerDate,
+                entries: [entry],
+                updatedById:
+                  performedById,
+              },
+              select: LEDGER_SELECT,
+            });
+
+          return {
+            ledger,
+            added: true,
+          };
+        }
+
+        if (
+          input.clientRequestId &&
+          existing.entries.some(
+            (existingEntry: any) =>
+              existingEntry.clientRequestId ===
+              input.clientRequestId,
+          )
+        ) {
+          const ledger =
+            await tx.dailyLedger.findUniqueOrThrow({
+              where: {
+                id: existing.id,
+              },
+              select: LEDGER_SELECT,
+            });
+
+          return {
+            ledger,
+            added: false,
+          };
+        }
+
+        const ledger =
+          await tx.dailyLedger.update({
+            where: {
+              id: existing.id,
+            },
+            data: {
+              entries: [
+                ...(existing.entries ?? []),
+                entry,
+              ],
+              updatedById:
+                performedById,
+            },
+            select: LEDGER_SELECT,
+          });
+
+        return {
+          ledger,
+          added: true,
+        };
       },
-      include: buildLedgerInclude(),
-    });
+    );
 
-    if (!existing) {
-      const ledger = await tx.dailyLedger.create({
-        data: {
-          customerId,
-          cardAssignmentId: assignment.id,
-          ledgerDate,
-          entries: [entry],
-          updatedById: performedById,
-        },
-        include: buildLedgerInclude(),
-      });
-      return { ledger, added: true };
-    }
-
-    if (input.clientRequestId && existing.entries.some((existingEntry) => existingEntry.clientRequestId === input.clientRequestId)) {
-      return { ledger: existing, added: false };
-    }
-
-    const ledger = await tx.dailyLedger.update({
-      where: { id: existing.id },
-      data: {
-        entries: [...(existing.entries ?? []), entry],
-        updatedById: performedById,
+  if (result.added) {
+    await createAuditLog(
+      prisma,
+      {
+        customerId,
+        performedById,
+        type: "entry_added",
+        title:
+          "Daily ledger entry added",
+        ledgerId:
+          result.ledger.id,
+        oldValue: "-",
+        newValue:
+          JSON.stringify(entry),
       },
-      include: buildLedgerInclude(),
-    });
-    return { ledger, added: true };
-  });
+    );
+  }
 
-  if (result.added) await createAuditLog(prisma, { customerId, performedById, type: "entry_added", title: "Daily ledger entry added", ledgerId: result.ledger.id, oldValue: "-", newValue: JSON.stringify(entry) });
+  const userIds = [
+    result.ledger.updatedBy.id,
+    ...(result.ledger.entries ?? []).map(
+      (item: any) =>
+        item.createdById,
+    ),
+  ];
 
-  return normalizeLedger(prisma, result.ledger);
+  const userSummaryMap =
+    await loadUserSummaryMap(
+      prisma,
+      userIds,
+    );
+
+  return normalizeLedger(
+    result.ledger,
+    userSummaryMap,
+  );
 }
 
 export async function updateLedgerEntry(
@@ -715,12 +1137,23 @@ export async function updateLedgerEntry(
   input: UpdateDailyLedgerEntryRequest,
 ): Promise<DailyLedgerResponse> {
   const prisma = getPrisma(app);
-  await getCustomerOrThrow(prisma, customerId);
 
-  const ledger = await getLedgerOrThrow(prisma, customerId, date);
+  const ledger =
+    await getLedgerOrThrow(
+      prisma,
+      customerId,
+      date,
+    );
 
-  if (entryIndex < 0 || entryIndex >= (ledger.entries?.length ?? 0)) {
-    throw createHttpError(404, "Ledger entry not found");
+  if (
+    entryIndex < 0 ||
+    entryIndex >=
+      (ledger.entries?.length ?? 0)
+  ) {
+    throw createHttpError(
+      404,
+      "Ledger entry not found",
+    );
   }
 
   if (
@@ -728,27 +1161,53 @@ export async function updateLedgerEntry(
     input.productEntries === undefined &&
     input.notes === undefined
   ) {
-    throw createHttpError(400, "At least one field is required");
+    throw createHttpError(
+      400,
+      "At least one field is required",
+    );
   }
 
-  const oldEntry = ledger.entries[entryIndex];
+  const oldEntry =
+    ledger.entries[entryIndex];
 
   if (!oldEntry) {
-    throw createHttpError(404, "Ledger entry not found");
+    throw createHttpError(
+      404,
+      "Ledger entry not found",
+    );
   }
 
-  const nextMilkEntries =
+  const [
+    nextMilkEntries,
+    nextProductEntries,
+  ] = await Promise.all([
     input.milkEntries !== undefined
-      ? await resolveMilkEntries(prisma, input.milkEntries)
-      : (oldEntry.milkEntries ?? []);
+      ? resolveMilkEntries(
+          prisma,
+          input.milkEntries,
+        )
+      : Promise.resolve(
+          oldEntry.milkEntries ?? [],
+        ),
 
-  const nextProductEntries =
     input.productEntries !== undefined
-      ? await resolveProductEntries(prisma, input.productEntries)
-      : (oldEntry.productEntries ?? []);
+      ? resolveProductEntries(
+          prisma,
+          input.productEntries,
+        )
+      : Promise.resolve(
+          oldEntry.productEntries ?? [],
+        ),
+  ]);
 
-  if (nextMilkEntries.length === 0 && nextProductEntries.length === 0) {
-    throw createHttpError(400, "At least one entry is required");
+  if (
+    nextMilkEntries.length === 0 &&
+    nextProductEntries.length === 0
+  ) {
+    throw createHttpError(
+      400,
+      "At least one entry is required",
+    );
   }
 
   const totals = calculateEntryTotals({
@@ -757,38 +1216,82 @@ export async function updateLedgerEntry(
   });
 
   const nextEntry = {
-    createdAt: oldEntry?.createdAt ?? new Date(),
-    createdById: oldEntry?.createdById ?? performedById,
-    clientRequestId: oldEntry?.clientRequestId ?? "",
-    milkEntries: nextMilkEntries,
-    productEntries: nextProductEntries,
-    notes: input.notes !== undefined ? input.notes : (oldEntry.notes ?? ""),
-    totalAmount: totals.totalAmount,
+    createdAt:
+      oldEntry.createdAt ??
+      new Date(),
+    createdById:
+      oldEntry.createdById ??
+      performedById,
+    clientRequestId:
+      oldEntry.clientRequestId ??
+      "",
+    milkEntries:
+      nextMilkEntries,
+    productEntries:
+      nextProductEntries,
+    notes:
+      input.notes !== undefined
+        ? input.notes
+        : (oldEntry.notes ?? ""),
+    totalAmount:
+      totals.totalAmount,
   };
 
-  const nextEntries = [...ledger.entries];
-  nextEntries[entryIndex] = nextEntry;
+  const nextEntries = [
+    ...ledger.entries,
+  ];
 
-  const updatedLedger = await prisma.dailyLedger.update({
-    where: { id: ledger.id },
-    data: {
-      entries: nextEntries,
-      updatedById: performedById,
+  nextEntries[entryIndex] =
+    nextEntry;
+
+  const updatedLedger =
+    await prisma.dailyLedger.update({
+      where: {
+        id: ledger.id,
+      },
+      data: {
+        entries: nextEntries,
+        updatedById:
+          performedById,
+      },
+      select: LEDGER_SELECT,
+    });
+
+  await createAuditLog(
+    prisma,
+    {
+      customerId,
+      performedById,
+      type: "entry_updated",
+      title:
+        "Daily ledger entry updated",
+      ledgerId:
+        updatedLedger.id,
+      oldValue:
+        JSON.stringify(oldEntry),
+      newValue:
+        JSON.stringify(nextEntry),
     },
-    include: buildLedgerInclude(),
-  });
+  );
 
-  await createAuditLog(prisma, {
-    customerId,
-    performedById,
-    type: "entry_updated",
-    title: "Daily ledger entry updated",
-    ledgerId: updatedLedger.id,
-    oldValue: JSON.stringify(oldEntry),
-    newValue: JSON.stringify(nextEntry),
-  });
+  const userIds = [
+    updatedLedger.updatedBy.id,
+    ...(updatedLedger.entries ?? []).map(
+      (item: any) =>
+        item.createdById,
+    ),
+  ];
 
-  return normalizeLedger(prisma, updatedLedger);
+  const userSummaryMap =
+    await loadUserSummaryMap(
+      prisma,
+      userIds,
+    );
+
+  return normalizeLedger(
+    updatedLedger,
+    userSummaryMap,
+  );
 }
 
 export async function deleteLedgerEntry(
@@ -799,35 +1302,79 @@ export async function deleteLedgerEntry(
   entryIndex: number,
 ): Promise<DailyLedgerResponse> {
   const prisma = getPrisma(app);
-  await getCustomerOrThrow(prisma, customerId);
 
-  const ledger = await getLedgerOrThrow(prisma, customerId, date);
+  const ledger =
+    await getLedgerOrThrow(
+      prisma,
+      customerId,
+      date,
+    );
 
-  if (entryIndex < 0 || entryIndex >= (ledger.entries?.length ?? 0)) {
-    throw createHttpError(404, "Ledger entry not found");
+  if (
+    entryIndex < 0 ||
+    entryIndex >=
+      (ledger.entries?.length ?? 0)
+  ) {
+    throw createHttpError(
+      404,
+      "Ledger entry not found",
+    );
   }
 
-  const oldEntry = ledger.entries[entryIndex];
-  const nextEntries = ledger.entries.filter((_: any, index: number) => index !== entryIndex);
+  const oldEntry =
+    ledger.entries[entryIndex];
 
-  const updatedLedger = await prisma.dailyLedger.update({
-    where: { id: ledger.id },
-    data: {
-      entries: nextEntries,
-      updatedById: performedById,
+  const nextEntries =
+    ledger.entries.filter(
+      (_: any, index: number) =>
+        index !== entryIndex,
+    );
+
+  const updatedLedger =
+    await prisma.dailyLedger.update({
+      where: {
+        id: ledger.id,
+      },
+      data: {
+        entries: nextEntries,
+        updatedById:
+          performedById,
+      },
+      select: LEDGER_SELECT,
+    });
+
+  await createAuditLog(
+    prisma,
+    {
+      customerId,
+      performedById,
+      type: "entry_deleted",
+      title:
+        "Daily ledger entry deleted",
+      ledgerId:
+        updatedLedger.id,
+      oldValue:
+        JSON.stringify(oldEntry),
+      newValue: "-",
     },
-    include: buildLedgerInclude(),
-  });
+  );
 
-  await createAuditLog(prisma, {
-    customerId,
-    performedById,
-    type: "entry_deleted",
-    title: "Daily ledger entry deleted",
-    ledgerId: updatedLedger.id,
-    oldValue: JSON.stringify(oldEntry),
-    newValue: "-",
-  });
+  const userIds = [
+    updatedLedger.updatedBy.id,
+    ...(updatedLedger.entries ?? []).map(
+      (item: any) =>
+        item.createdById,
+    ),
+  ];
 
-  return normalizeLedger(prisma, updatedLedger);
+  const userSummaryMap =
+    await loadUserSummaryMap(
+      prisma,
+      userIds,
+    );
+
+  return normalizeLedger(
+    updatedLedger,
+    userSummaryMap,
+  );
 }

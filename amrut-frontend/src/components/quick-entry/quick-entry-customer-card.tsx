@@ -118,9 +118,7 @@ export default function QuickEntryCustomerCard({
               <CircleCheckBig className="h-4 w-4 shrink-0 text-emerald-600" />
 
               <span className="font-medium text-emerald-700">
-                {ledger
-                  ? "Ledger loaded for selected date"
-                  : "Customer found"}
+                {ledger ? "Ledger loaded for selected date" : "Customer found"}
               </span>
             </>
           ) : (
@@ -209,9 +207,7 @@ export default function QuickEntryCustomerCard({
 
                 <span className="truncate">
                   Mobile:{" "}
-                  <span className="font-medium">
-                    {customer.mobileNumber}
-                  </span>
+                  <span className="font-medium">{customer.mobileNumber}</span>
                 </span>
               </div>
             </div>

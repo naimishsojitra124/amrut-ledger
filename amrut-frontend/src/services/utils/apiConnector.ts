@@ -6,6 +6,33 @@ const TOKEN_KEY = "authToken";
 const DEVICE_KEY = "amrut:device-id";
 let accessToken: string | null = null;
 
+const API_TIMING_ENABLED =
+  import.meta.env.DEV || import.meta.env.VITE_API_TIMING === "true";
+
+const requestStartTimes = new WeakMap<object, number>();
+
+function logRequestTiming(
+  config: { method?: string; url?: string },
+  status?: number,
+) {
+  if (!API_TIMING_ENABLED) {
+    return;
+  }
+
+  const startedAt = requestStartTimes.get(config);
+  if (startedAt === undefined) {
+    return;
+  }
+
+  const durationMs = Math.round(performance.now() - startedAt);
+  const method = (config.method ?? "GET").toUpperCase();
+  const url = (config.url ?? "").split("?")[0];
+  const statusLabel = status === undefined ? "ERR" : String(status);
+
+  console.info(`[API] ${method} ${url} ${statusLabel} ${durationMs}ms`);
+  requestStartTimes.delete(config);
+}
+
 export function getDeviceId(): string {
   const existing = localStorage.getItem(DEVICE_KEY);
   if (existing) return existing;
@@ -54,6 +81,7 @@ export const axiosInstance = axios.create({
 // Request interceptor — attach token
 axiosInstance.interceptors.request.use(
   (config) => {
+    requestStartTimes.set(config, performance.now());
     config.headers.set("X-Device-Id", getDeviceId());
     const token = tokenStorage.get();
     if (token) {
@@ -66,10 +94,18 @@ axiosInstance.interceptors.request.use(
 
 // Response interceptor — handle 401
 axiosInstance.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    logRequestTiming(response.config, response.status);
+    return response;
+  },
   (error) => {
     const status = error.response?.status;
-    const url = error.config?.url ?? "";
+    const config = error.config;
+    const url = config?.url ?? "";
+
+    if (config) {
+      logRequestTiming(config, status);
+    }
 
     const isAuthEndpoint =
       url.includes("/auth/login") ||

@@ -11,6 +11,10 @@ export const customerListQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
 });
 
+export const customerCardLookupQuerySchema = z.object({
+  cardNumber: z.coerce.number().int().positive(),
+});
+
 const customerMilkTypeSchema = z.object({
   primaryMilkTypeId: z.string().min(1, "Primary milk type is required"),
   otherMilkTypeIds: z.array(z.string().min(1)).optional(),

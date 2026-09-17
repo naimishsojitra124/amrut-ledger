@@ -20,18 +20,6 @@ import type {
 import { CardAssignmentSummaryResponse } from "../cards/card.types";
 import { normalizeAssignment } from "../cards/card.service";
 
-type CustomerWithCardAssignments = Prisma.CustomerGetPayload<{
-  include: {
-    cardAssignments: {
-      where: { unassignedAt: null };
-      take: 1;
-      include: {
-        card: true;
-      };
-    };
-  };
-}>;
-
 type CardAssignmentWithRelations = Prisma.CardAssignmentGetPayload<{
   include: {
     customer: true;
@@ -125,11 +113,47 @@ async function loadMilkTypeMap(
   });
 }
 
+const CUSTOMER_LIST_SELECT = {
+  id: true,
+  fullName: true,
+  searchName: true,
+  mobileNumber: true,
+  address: true,
+  depositAmount: true,
+  status: true,
+  milkTypes: true,
+  notes: true,
+  archivedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.CustomerSelect;
+
+const CUSTOMER_MILK_TYPE_SELECT = {
+  id: true,
+  name: true,
+  shortCode: true,
+  rate: true,
+} satisfies Prisma.MilkTypeSelect;
+
+const CUSTOMER_CARD_ASSIGNMENT_SELECT = {
+  customerId: true,
+  cardId: true,
+  assignedAt: true,
+  unassignedAt: true,
+  depositAtAssignment: true,
+  card: {
+    select: {
+      cardNumber: true,
+      status: true,
+    },
+  },
+} satisfies Prisma.CardAssignmentSelect;
+
 async function loadCustomerCurrentCard(prisma: PrismaClient, customerId: string) {
   const assignment = await prisma.cardAssignment.findFirst({
     where: { customerId, unassignedAt: null },
     orderBy: { assignedAt: "desc" },
-    include: { card: true },
+    select: CUSTOMER_CARD_ASSIGNMENT_SELECT,
   });
 
   return assignment ? normalizeCardAssignment(assignment) : null;
@@ -143,6 +167,7 @@ async function loadCustomerMilkTypes(prisma: PrismaClient, customer: any) {
 
   const dbMilkTypes = await prisma.milkType.findMany({
     where: { id: { in: ids } },
+    select: CUSTOMER_MILK_TYPE_SELECT,
   });
 
   const byId = new Map(dbMilkTypes.map((item) => [item.id, item]));
@@ -156,6 +181,82 @@ async function loadCustomerMilkTypes(prisma: PrismaClient, customer: any) {
       isDefault: item.isDefault,
     };
   });
+}
+
+async function loadCustomerCurrentCardMap(prisma: PrismaClient, customerIds: string[]) {
+  if (customerIds.length === 0) return new Map<string, CustomerCardResponse>();
+
+  const assignments = await prisma.cardAssignment.findMany({
+    where: {
+      customerId: { in: customerIds },
+      unassignedAt: null,
+    },
+    orderBy: { assignedAt: "desc" },
+    select: CUSTOMER_CARD_ASSIGNMENT_SELECT,
+  });
+
+  const map = new Map<string, CustomerCardResponse>();
+  for (const assignment of assignments) {
+    if (!map.has(assignment.customerId)) {
+      map.set(assignment.customerId, normalizeCardAssignment(assignment));
+    }
+  }
+
+  return map;
+}
+
+async function loadCustomerMilkTypesMap(
+  prisma: PrismaClient,
+  customers: Array<{
+    id: string;
+    milkTypes: unknown;
+  }>,
+) {
+  const embeddedByCustomer = new Map<
+    string,
+    { milkTypeId: string; isDefault: boolean }[]
+  >();
+  const milkTypeIds = new Set<string>();
+
+  for (const customer of customers) {
+    const embedded = (customer.milkTypes ?? []) as {
+      milkTypeId: string;
+      isDefault: boolean;
+    }[];
+
+    embeddedByCustomer.set(customer.id, embedded);
+    for (const item of embedded) milkTypeIds.add(item.milkTypeId);
+  }
+
+  if (milkTypeIds.size === 0) {
+    return new Map<string, CustomerResponse["milkTypes"]>();
+  }
+
+  const dbMilkTypes = await prisma.milkType.findMany({
+    where: { id: { in: [...milkTypeIds] } },
+    select: CUSTOMER_MILK_TYPE_SELECT,
+  });
+
+  const byId = new Map(dbMilkTypes.map((item) => [item.id, item]));
+  const result = new Map<string, CustomerResponse["milkTypes"]>();
+
+  for (const [customerId, embedded] of embeddedByCustomer) {
+    result.set(
+      customerId,
+      embedded.map((item) => {
+        const dbItem = byId.get(item.milkTypeId);
+        return {
+          milkTypeId: item.milkTypeId,
+          milkTypeName: dbItem?.name ?? "Unknown",
+          shortCode: dbItem?.shortCode ?? "",
+          rate: dbItem?.rate ?? 0,
+          isDefault: item.isDefault,
+        };
+      }),
+    );
+  }
+
+  return result;
 }
 
 async function loadCustomerOutstandingMap(prisma: PrismaClient, customerIds: string[]) {
@@ -442,57 +543,111 @@ async function assignCardToCustomer(
   return { card, assignmentId: assignment.id };
 }
 
-async function fetchCustomerBaseList(prisma: PrismaClient, query: CustomerListQuery) {
-  const where: any = {};
+async function buildCustomerListWhere(prisma: PrismaClient, query: CustomerListQuery) {
+  const where: Prisma.CustomerWhereInput = {};
 
   if (query.status) where.status = query.status;
-  if (query.search) {
-    const s = query.search.trim();
-    where.OR = [
-      { fullName: { contains: s, mode: "insensitive" } },
-      { mobileNumber: { contains: s } },
-      { searchName: { contains: s, mode: "insensitive" } },
+
+  const search = query.search?.trim();
+  if (search) {
+    const customerFieldMatches: Prisma.CustomerWhereInput[] = [
+      { fullName: { contains: search, mode: "insensitive" } },
+      { mobileNumber: { contains: search } },
+      { searchName: { contains: search, mode: "insensitive" } },
     ];
+
+    if (/^\d+$/.test(search) && query.status !== "archived") {
+      // Card numbers are Ints, so Prisma cannot perform substring matching
+      // directly. Search only active assignments instead of loading the
+      // entire card inventory and then resolving assignments in a second query.
+      const activeAssignments = await prisma.cardAssignment.findMany({
+        where: { unassignedAt: null },
+        select: {
+          customerId: true,
+          card: {
+            select: {
+              cardNumber: true,
+            },
+          },
+        },
+      });
+
+      const matchingCustomerIds = [
+        ...new Set(
+          activeAssignments
+            .filter((assignment) =>
+              assignment.card.cardNumber.toString().includes(search),
+            )
+            .map((assignment) => assignment.customerId),
+        ),
+      ];
+
+      if (matchingCustomerIds.length > 0) {
+        customerFieldMatches.push({
+          id: { in: matchingCustomerIds },
+        });
+      }
+    }
+
+    where.OR = customerFieldMatches;
   }
 
-  const customers = await prisma.customer.findMany({
-    where,
-    orderBy: [{ createdAt: "asc" }],
-  });
+  return where;
+}
+
+async function fetchCustomerBaseList(
+  prisma: PrismaClient,
+  query: CustomerListQuery,
+  page: number,
+  limit: number,
+) {
+  const where = await buildCustomerListWhere(prisma, query);
+  const skip = (page - 1) * limit;
+
+  const [totalItems, customers] = await Promise.all([
+    prisma.customer.count({ where }),
+    prisma.customer.findMany({
+      where,
+      orderBy: [{ createdAt: "asc" }],
+      skip,
+      take: limit,
+      select: CUSTOMER_LIST_SELECT,
+    }),
+  ]);
 
   const customerIds = customers.map((customer) => customer.id);
 
-  const [outstandingByCustomer, lastEntryByCustomer] = await Promise.all([
+  const [
+    outstandingByCustomer,
+    lastEntryByCustomer,
+    currentCardByCustomer,
+    milkTypesByCustomer,
+  ] = await Promise.all([
     loadCustomerOutstandingMap(prisma, customerIds),
     loadCustomerLastEntryMap(prisma, customerIds),
+    loadCustomerCurrentCardMap(prisma, customerIds),
+    loadCustomerMilkTypesMap(prisma, customers),
   ]);
 
-  let normalized = await Promise.all(
-    customers.map(async (customer) => {
-      const base = await normalizeCustomer(prisma, customer);
+  const normalized = customers.map((customer) => ({
+    id: customer.id,
+    fullName: customer.fullName,
+    searchName: customer.searchName,
+    mobileNumber: customer.mobileNumber,
+    address: customer.address,
+    depositAmount: customer.depositAmount ?? 0,
+    status: customer.status,
+    milkTypes: milkTypesByCustomer.get(customer.id) ?? [],
+    currentCard: currentCardByCustomer.get(customer.id) ?? null,
+    outstandingAmount: outstandingByCustomer.get(customer.id) ?? 0,
+    lastEntryAt: lastEntryByCustomer.get(customer.id) ?? null,
+    notes: customer.notes ?? "",
+    archivedAt: toIso(customer.archivedAt),
+    createdAt: customer.createdAt.toISOString(),
+    updatedAt: customer.updatedAt.toISOString(),
+  }));
 
-      return {
-        ...base,
-        outstandingAmount: outstandingByCustomer.get(customer.id) ?? 0,
-        lastEntryAt: lastEntryByCustomer.get(customer.id) ?? null,
-      };
-    }),
-  );
-
-  if (query.search) {
-    const s = query.search.trim().toLowerCase();
-    normalized = normalized.filter((customer) => {
-      const cardNumber = customer.currentCard?.cardNumber?.toString() ?? "";
-      return (
-        customer.fullName.toLowerCase().includes(s) ||
-        customer.mobileNumber.includes(s) ||
-        customer.searchName.toLowerCase().includes(s) ||
-        cardNumber.includes(s)
-      );
-    });
-  }
-
-  return normalized;
+  return { totalItems, items: normalized };
 }
 
 export async function getCustomers(
@@ -503,15 +658,48 @@ export async function getCustomers(
   const page = query.page ?? 1;
   const limit = query.limit ?? 10;
 
-  const all = await fetchCustomerBaseList(prisma, query);
-  const totalItems = all.length;
+  const { totalItems, items } = await fetchCustomerBaseList(prisma, query, page, limit);
   const pageInfo = buildPageInfo(totalItems, page, limit);
-  const start = (pageInfo.page - 1) * limit;
 
   return {
-    items: all.slice(start, start + limit),
+    items,
     pageInfo,
   };
+}
+
+export async function getCustomerByCardNumber(
+  app: FastifyInstance,
+  cardNumber: number,
+): Promise<CustomerResponse> {
+  const prisma = getPrisma(app);
+
+  const assignment = await prisma.cardAssignment.findFirst({
+    where: {
+      unassignedAt: null,
+      card: {
+        cardNumber,
+      },
+    },
+    orderBy: { assignedAt: "desc" },
+    select: {
+      customerId: true,
+    },
+  });
+
+  if (!assignment) {
+    throw createHttpError(404, "No active customer found for this card");
+  }
+
+  const customer = await prisma.customer.findUnique({
+    where: { id: assignment.customerId },
+    select: CUSTOMER_LIST_SELECT,
+  });
+
+  if (!customer || customer.status !== "active") {
+    throw createHttpError(404, "No active customer found for this card");
+  }
+
+  return normalizeCustomer(prisma, customer);
 }
 
 export async function getCustomerById(app: FastifyInstance, id: string): Promise<CustomerResponse> {
@@ -540,18 +728,15 @@ export async function getCustomerStats(app: FastifyInstance): Promise<CustomerSt
     }),
   ]);
 
-  const customers = await prisma.customer.findMany({
-    include: {
-      cardAssignments: {
-        where: { unassignedAt: null },
-        take: 1,
-      },
-    },
+  // A customer is considered to have a card when they have at least one
+  // active card assignment. Grouping by customerId preserves that behavior
+  // without loading every customer document into application memory.
+  const customersWithActiveCard = await prisma.cardAssignment.groupBy({
+    by: ["customerId"],
+    where: { unassignedAt: null },
   });
 
-  const customersWithCard = customers.filter(
-    (customer: CustomerWithCardAssignments) => customer.cardAssignments.length > 0,
-  ).length;
+  const customersWithCard = customersWithActiveCard.length;
 
   return {
     // Keep dashboard and customer-list consumers on the same contract.
@@ -603,7 +788,7 @@ export async function createCustomer(
       data: {
         fullName: input.fullName.trim(),
         searchName: getSearchName(input.fullName),
-        mobileNumber: input.mobileNumber.trim(),
+        mobileNumber: input.mobileNumber?.trim() || null,
         address: input.address.trim(),
         depositAmount,
         status: "active",

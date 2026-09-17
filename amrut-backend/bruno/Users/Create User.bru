@@ -22,8 +22,15 @@ body:json {
     "mobileNumber": "{{userMobileNumber}}",
     "email": "{{userEmail}}",
     "password": "{{userPassword}}",
-    "role": "employee"
+    "role": "owner"
   }
+}
+
+vars:pre-request {
+  userFullName: Naimish Sojitra
+  userMobileNumber: 9316607575
+  userEmail: naimishsojitra2002@gmail.com
+  userPassword: Amrut@1068
 }
 
 script:pre-request {

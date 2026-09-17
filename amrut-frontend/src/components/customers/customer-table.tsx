@@ -21,8 +21,6 @@ import {
   Search,
   SlidersHorizontal,
 } from "lucide-react";
-import { toast } from "sonner";
-
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,7 +52,6 @@ import { DataTableSkeleton } from "@/components/common/data-table-skeleton";
 import FilterSelect from "../common/filter-select";
 
 import {
-  useArchiveCustomerMutation,
   useCustomersQuery,
   useRestoreCustomerMutation,
 } from "@/services/customer.service";
@@ -140,8 +137,7 @@ export default function CustomerTable({
   const openCustomerCloseConfirm = useModalStore(
     (state) => state.openCustomerCloseConfirm,
   );
-
-  const archiveCustomerMutation = useArchiveCustomerMutation();
+  const openConfirmation = useModalStore((state) => state.openConfirmation);
 
   const restoreCustomerMutation = useRestoreCustomerMutation();
 
@@ -282,55 +278,28 @@ export default function CustomerTable({
     });
   }
 
-  async function handleCloseCustomer(customer: CustomerRow) {
-    if (customer.depositAmount > 0) {
-      openCustomerCloseConfirm({
-        customerId: customer.id,
-
-        customerName: customer.fullName,
-
-        depositAmount: customer.depositAmount,
-
-        onConfirmed: () => {
-          onCloseCustomer?.(customer.id);
-        },
-      });
-
-      return;
-    }
-
-    try {
-      // Preserve the original behavior:
-      // customers with no deposit close
-      // immediately without confirmation.
-      const archiveCustomerMutation =
-        await import("@/services/customer.service").then(
-          (module) => module.useArchiveCustomerMutation,
-        );
-
-      // This branch is intentionally unreachable
-      // in normal React execution and exists only
-      // to avoid changing the mutation contract.
-      void archiveCustomerMutation;
-    } catch {
-      // No-op.
-    }
+  function handleCloseCustomer(customer: CustomerRow) {
+    openCustomerCloseConfirm({
+      customerId: customer.id,
+      customerName: customer.fullName,
+      depositAmount: customer.depositAmount,
+      onConfirmed: () => {
+        onCloseCustomer?.(customer.id);
+      },
+    });
   }
 
-  async function handleReopenCustomer(customerId: string) {
-    try {
-      await restoreCustomerMutation.mutateAsync(customerId);
-
-      toast.success("Customer reopened");
-
-      onReopenCustomer?.(customerId);
-    } catch (mutationError) {
-      toast.error(
-        mutationError instanceof Error
-          ? mutationError.message
-          : "Failed to reopen customer",
-      );
-    }
+  function handleReopenCustomer(customer: CustomerRow) {
+    openConfirmation({
+      title: `Reopen ${customer.fullName}?`,
+      description: "This customer will become active again and can be used in normal customer workflows.",
+      confirmLabel: "Reopen Customer",
+      successMessage: "Customer reopened",
+      onConfirm: () =>
+        restoreCustomerMutation.mutateAsync(customer.id).then(() => {
+          onReopenCustomer?.(customer.id);
+        }),
+    });
   }
 
   const columns = useMemo<ColumnDef<CustomerRow>[]>(
@@ -474,9 +443,7 @@ export default function CustomerTable({
 
           const isActive = customer.status === "active";
 
-          const actionPending =
-            archiveCustomerMutation.isPending ||
-            restoreCustomerMutation.isPending;
+          const actionPending = restoreCustomerMutation.isPending;
 
           return (
             <div className="flex items-center justify-end gap-1.5 sm:gap-2">
@@ -534,7 +501,7 @@ export default function CustomerTable({
                   ) : (
                     <DropdownMenuItem
                       disabled={actionPending}
-                      onClick={() => void handleReopenCustomer(customer.id)}
+                      onClick={() => handleReopenCustomer(customer)}
                       className="flex items-center gap-2 text-emerald-600 focus:text-emerald-600"
                     >
                       <RotateCcw className="h-4 w-4" />
@@ -554,8 +521,8 @@ export default function CustomerTable({
       onCloseCustomer,
       onReopenCustomer,
       openCustomerEdit,
-      archiveCustomerMutation.isPending,
       restoreCustomerMutation.isPending,
+      openConfirmation,
     ],
   );
 

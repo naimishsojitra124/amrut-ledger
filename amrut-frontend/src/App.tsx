@@ -83,11 +83,11 @@ export const router = createBrowserRouter([
 
 function AuthLoadingScreen() {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-50">
+    <div className="flex min-h-dvh items-center justify-center bg-neutral-50">
       <div className="flex flex-col items-center gap-3">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-900" />
 
-        <p className="text-sm font-medium text-slate-600">
+        <p className="text-sm font-medium text-neutral-600">
           Loading Amrut Ledger...
         </p>
       </div>

@@ -38,7 +38,7 @@ export interface CustomerResponse {
   id: string;
   fullName: string;
   searchName: string;
-  mobileNumber: string;
+  mobileNumber: string | null;
   address: string;
   depositAmount: number;
   status: CustomerStatus;
@@ -71,7 +71,7 @@ export interface CustomerStatsResponse {
 
 export interface CreateCustomerRequest {
   fullName: string;
-  mobileNumber: string;
+  mobileNumber?: string;
   address: string;
   depositAmount?: number;
   primaryMilkTypeId: string;

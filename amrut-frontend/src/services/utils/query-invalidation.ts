@@ -109,10 +109,8 @@ export async function invalidateCustomerStatusChanged(
 export async function invalidateCustomerLedgerChanged(
   queryClient: QueryClient,
   customerId: string,
-  date: string,
 ) {
   return invalidate(queryClient, [
-    [...ROOTS.dailyLedgers, customerId, date],
     ROOTS.customerList,
     [...ROOTS.customerDetail, customerId],
     [...ROOTS.customerDailyHistory, customerId],

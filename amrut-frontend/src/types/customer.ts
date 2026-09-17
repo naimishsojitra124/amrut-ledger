@@ -425,7 +425,7 @@ export interface CustomerCardHistoryResponse {
 
 export interface CreateCustomerRequest {
   fullName: string;
-  mobileNumber: string;
+  mobileNumber?: string | undefined;
   address: string;
   depositAmount: number;
   primaryMilkTypeId: string;
@@ -436,7 +436,7 @@ export interface CreateCustomerRequest {
 
 export interface UpdateCustomerRequest {
   fullName: string;
-  mobileNumber: string;
+  mobileNumber?: string | undefined;
   address: string;
   depositAmount?: number;
   primaryMilkTypeId?: string;

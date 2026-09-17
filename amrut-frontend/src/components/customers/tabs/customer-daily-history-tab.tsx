@@ -348,7 +348,7 @@ export default function CustomerDailyHistoryTab({
                       )}
                     </TableCell>
 
-                    <TableCell className="align-top">
+                    <TableCell className="border-r align-top">
                       {productEntries.length ? (
                         <div className="space-y-2">
                           {productEntries.map((product, index) => (

@@ -55,14 +55,14 @@ const customerFormSchema = z
       .trim()
       .min(10, "Mobile number must be at least 10 digits"),
 
-    address: z.string().trim().min(1, "Address is required"),
+    address: z.string().trim().optional(),
 
     depositAmount: z
       .number()
       .finite("Enter a valid deposit amount")
       .min(0, "Deposit cannot be negative"),
 
-    notes: z.string(),
+    notes: z.string().optional(),
 
     primaryMilkId: z.string().min(1, "Primary milk type is required"),
 
@@ -385,7 +385,7 @@ export default function CustomerFormModal() {
         await createCustomerMutation.mutateAsync({
           fullName: values.fullName,
           mobileNumber: values.mobileNumber,
-          address: values.address,
+          address: values.address ?? "",
           depositAmount: values.depositAmount,
           primaryMilkTypeId: milkTypePayload.primaryMilkTypeId,
           otherMilkTypeIds: milkTypePayload.otherMilkTypeIds,
@@ -413,7 +413,7 @@ export default function CustomerFormModal() {
 
           mobileNumber: values.mobileNumber,
 
-          address: values.address,
+          address: values.address ?? "",
 
           primaryMilkTypeId: milkTypePayload.primaryMilkTypeId,
 
@@ -507,8 +507,8 @@ export default function CustomerFormModal() {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && closeModal()}>
-      <DialogContent className="flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-lg flex-col gap-0 overflow-hidden p-2 sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:rounded-2xl">
-        <DialogHeader className="border-b p-4">
+      <DialogContent className="flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-3xl min-w-[90vw] sm:min-w-120 md:min-w-150 lg:min-w-150 flex-col gap-0 overflow-hidden p-2 sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl">
+        <DialogHeader className="shrink-0 border-b px-2 py-4 pr-12 sm:px-3 sm:py-3">
           <div className="flex items-center justify-between gap-4">
             <div>
               <DialogTitle className="text-lg">
@@ -524,8 +524,8 @@ export default function CustomerFormModal() {
           </div>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[75vh] p-3 overflow-auto">
-          <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
+        <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
+          <ScrollArea className="max-h-[70vh] p-3 overflow-auto">
             <div className="grid gap-4 md:grid-cols-2">
               {/* Full Name */}
               <div className="flex flex-col gap-1.5">
@@ -826,49 +826,36 @@ export default function CustomerFormModal() {
                 </p>
               )}
             </div>
-          </form>
-        </ScrollArea>
+          </ScrollArea>
 
-        <DialogFooter
-          className="
-            shrink-0
-            flex-col-reverse
-            gap-2
-            border-t
-            px-4
-            py-3
-            sm:flex-row
-            sm:justify-end
-            sm:px-6
-            sm:py-4
-          "
-        >
-          {/* Actions */}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={closeModal}
-            disabled={isSubmitting}
-          >
-            Cancel
-          </Button>
+          <DialogFooter className="flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
+            {/* Actions */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={closeModal}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
 
-          <Button
-            type="submit"
-            disabled={isSubmitting || isCustomerLoading || isCardDataLoading}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : mode === "create" ? (
-              "Create Customer"
-            ) : (
-              "Update Customer"
-            )}
-          </Button>
-        </DialogFooter>
+            <Button
+              type="submit"
+              disabled={isSubmitting || isCustomerLoading || isCardDataLoading}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : mode === "create" ? (
+                "Create Customer"
+              ) : (
+                "Update Customer"
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

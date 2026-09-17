@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type WheelEvent } from "react";
 
 import {
   BadgePlus,
@@ -123,8 +123,7 @@ export default function QuickEntryForm({
   const activeMilkTypes = useMemo<MilkTypeOption[]>(() => {
     const items = isOnline
       ? (milkTypesQuery.data?.items ?? [])
-      : (milkTypesQuery.data?.items ??
-        offlineQuickEntryCache.get().milkTypes);
+      : (milkTypesQuery.data?.items ?? offlineQuickEntryCache.get().milkTypes);
 
     return items as MilkTypeOption[];
   }, [isOnline, milkTypesQuery.data?.items]);
@@ -180,8 +179,7 @@ export default function QuickEntryForm({
 
   const selectedMilkTypeId = milkTypeId || defaultMilkTypeId;
 
-  const selectedMilkType =
-    milkTypeMap.get(selectedMilkTypeId) ?? null;
+  const selectedMilkType = milkTypeMap.get(selectedMilkTypeId) ?? null;
 
   const currentProductTotal = useMemo(() => {
     const quantity = Number(productQuantity);
@@ -277,9 +275,7 @@ export default function QuickEntryForm({
   }
 
   function handleRemoveMilkRow(rowId: string) {
-    setDraftMilkRows((previous) =>
-      previous.filter((row) => row.id !== rowId),
-    );
+    setDraftMilkRows((previous) => previous.filter((row) => row.id !== rowId));
   }
 
   function handleRemoveProductRow(rowId: string) {
@@ -354,8 +350,21 @@ export default function QuickEntryForm({
     setProductName(name);
   }
 
-  const hasDraft =
-    draftMilkRows.length > 0 || draftProductRows.length > 0;
+  function handleWheel(event: WheelEvent<HTMLInputElement>) {
+    event.preventDefault();
+    event.currentTarget.blur();
+  }
+
+  function handleDecimalInput(
+    value: string,
+    setValue: (value: string) => void,
+  ) {
+    if (/^\d*\.?\d*$/.test(value)) {
+      setValue(value);
+    }
+  }
+
+  const hasDraft = draftMilkRows.length > 0 || draftProductRows.length > 0;
 
   return (
     <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_320px]">
@@ -411,14 +420,15 @@ export default function QuickEntryForm({
 
               <Input
                 value={milkLitres}
-                onChange={(event) => setMilkLitres(event.target.value)}
+                onChange={(event) =>
+                  handleDecimalInput(event.target.value, setMilkLitres)
+                }
                 disabled={!customer || isBusy}
                 placeholder="e.g. 1.5"
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
                 inputMode="decimal"
                 className="h-11"
+                onWheel={handleWheel}
               />
             </div>
 
@@ -428,11 +438,7 @@ export default function QuickEntryForm({
               </label>
 
               <Input
-                value={
-                  selectedMilkType
-                    ? `₹${selectedMilkType.rate} / L`
-                    : "—"
-                }
+                value={selectedMilkType ? `₹${selectedMilkType.rate} / L` : "—"}
                 disabled
                 className="h-11 bg-neutral-50 text-neutral-700"
               />
@@ -515,15 +521,13 @@ export default function QuickEntryForm({
 
               <Input
                 value={productQuantity}
-                onChange={(event) =>
-                  setProductQuantity(event.target.value)
-                }
+                onChange={(event) => setProductQuantity(event.target.value)}
+                onWheel={handleWheel}
                 disabled={!customer || isBusy}
                 placeholder="e.g. 1"
                 type="number"
                 min="0"
-                step="0.01"
-                inputMode="decimal"
+                inputMode="numeric"
                 className="h-11"
               />
             </div>
@@ -535,9 +539,8 @@ export default function QuickEntryForm({
 
               <Input
                 value={productUnitPrice}
-                onChange={(event) =>
-                  setProductUnitPrice(event.target.value)
-                }
+                onChange={(event) => setProductUnitPrice(event.target.value)}
+                onWheel={handleWheel}
                 disabled={!customer || isBusy}
                 placeholder="e.g. 35"
                 type="number"
@@ -572,8 +575,7 @@ export default function QuickEntryForm({
                     productName === suggestion.name
                       ? "border-blue-200 bg-blue-50 text-[#266699]"
                       : "border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50",
-                    (!customer || isBusy) &&
-                      "cursor-not-allowed opacity-50",
+                    (!customer || isBusy) && "cursor-not-allowed opacity-50",
                   )}
                 >
                   {suggestion.name}
@@ -625,9 +627,7 @@ export default function QuickEntryForm({
           </div>
 
           <div className="shrink-0 rounded-xl bg-blue-50 px-3 py-2 text-right">
-            <p className="text-xs font-medium text-neutral-600">
-              Amount
-            </p>
+            <p className="text-xs font-medium text-neutral-600">Amount</p>
 
             <p className="text-xl font-semibold text-[#266699] sm:text-2xl">
               {formatCurrency(currentEntryTotal)}
@@ -732,9 +732,7 @@ function DraftRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        <Badge className={badgeClassName}>
-          {formatCurrency(amount)}
-        </Badge>
+        <Badge className={badgeClassName}>{formatCurrency(amount)}</Badge>
 
         <Button
           type="button"

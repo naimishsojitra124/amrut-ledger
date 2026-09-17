@@ -14,7 +14,8 @@ export type AppModal =
   | "deleteLedger"
   | "fullLedger"
   | "customerCloseConfirm"
-  | "functionOrderDeleteConfirm";
+  | "functionOrderDeleteConfirm"
+  | "confirmation";
 
 type CustomerFormPayload = {
   mode: CustomerFormMode;
@@ -54,6 +55,16 @@ type FunctionOrderDeleteConfirmPayload = {
   onConfirmed?: () => void;
 };
 
+export type ConfirmationPayload = {
+  title: string;
+  description?: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  variant?: "default" | "destructive";
+  successMessage?: string;
+  onConfirm: () => void | Promise<void>;
+};
+
 type ModalStore = {
   activeModal: AppModal | null;
 
@@ -70,6 +81,8 @@ type ModalStore = {
   functionOrderDeleteConfirm:
     | FunctionOrderDeleteConfirmPayload
     | null;
+
+  confirmation: ConfirmationPayload | null;
 
   openCustomerCreate: () => void;
   openCustomerEdit: (
@@ -112,6 +125,8 @@ type ModalStore = {
     payload: FunctionOrderDeleteConfirmPayload,
   ) => void;
 
+  openConfirmation: (payload: ConfirmationPayload) => void;
+
   openModal: (
     modal: Exclude<
       AppModal,
@@ -138,6 +153,7 @@ export const useModalStore =
 
     customerCloseConfirm: null,
     functionOrderDeleteConfirm: null,
+    confirmation: null,
 
     openCustomerCreate: () =>
       set({
@@ -338,6 +354,12 @@ export const useModalStore =
           payload,
       }),
 
+    openConfirmation: (payload) =>
+      set({
+        activeModal: "confirmation",
+        confirmation: payload,
+      }),
+
     openModal: (
       modal,
     ) =>
@@ -351,6 +373,7 @@ export const useModalStore =
         fullLedger: null,
         customerCloseConfirm: null,
         functionOrderDeleteConfirm: null,
+        confirmation: null,
       }),
 
     closeModal: () =>
@@ -365,5 +388,6 @@ export const useModalStore =
 
         customerCloseConfirm: null,
         functionOrderDeleteConfirm: null,
+        confirmation: null,
       }),
   }));

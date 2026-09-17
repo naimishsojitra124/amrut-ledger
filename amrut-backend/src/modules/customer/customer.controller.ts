@@ -3,6 +3,7 @@ import {
   customerIdParamSchema,
   archiveCustomerSchema,
   customerListQuerySchema,
+  customerCardLookupQuerySchema,
   customerPageQuerySchema,
   updateCustomerSchema,
   createCustomerSchema,
@@ -14,6 +15,7 @@ import {
   createCustomer,
   getCustomerAuditLogs,
   getCustomerBills,
+  getCustomerByCardNumber,
   getCustomerById,
   getCustomerCardAssignment,
   getCustomerCardHistory,
@@ -39,13 +41,17 @@ function getCurrentUserId(request: FastifyRequest) {
 export async function topUpDepositHandler(request: FastifyRequest, reply: FastifyReply) {
   const { id } = customerIdParamSchema.parse(request.params);
   const body = depositTransactionSchema.parse(request.body);
-  return reply.status(201).send(await topUpDeposit(request.server, id, body, getCurrentUserId(request)));
+  return reply
+    .status(201)
+    .send(await topUpDeposit(request.server, id, body, getCurrentUserId(request)));
 }
 
 export async function refundDepositHandler(request: FastifyRequest, reply: FastifyReply) {
   const { id } = customerIdParamSchema.parse(request.params);
   const body = depositTransactionSchema.parse(request.body);
-  return reply.status(201).send(await refundDeposit(request.server, id, body, getCurrentUserId(request)));
+  return reply
+    .status(201)
+    .send(await refundDeposit(request.server, id, body, getCurrentUserId(request)));
 }
 
 export async function getCustomerStatementHandler(request: FastifyRequest, reply: FastifyReply) {
@@ -62,6 +68,13 @@ export async function getCustomersHandler(request: FastifyRequest, reply: Fastif
 
 export async function getCustomerStatsHandler(request: FastifyRequest, reply: FastifyReply) {
   const result = await getCustomerStats(request.server);
+  return reply.send(result);
+}
+
+export async function getCustomerByCardNumberHandler(request: FastifyRequest, reply: FastifyReply) {
+  const query = customerCardLookupQuerySchema.parse(request.query);
+  const result = await getCustomerByCardNumber(request.server, query.cardNumber);
+
   return reply.send(result);
 }
 
@@ -90,7 +103,12 @@ export async function updateCustomerHandler(request: FastifyRequest, reply: Fast
 export async function archiveCustomerHandler(request: FastifyRequest, reply: FastifyReply) {
   const params = customerIdParamSchema.parse(request.params);
   const body = archiveCustomerSchema.parse(request.body ?? {});
-  const result = await archiveCustomer(request.server, params.id, getCurrentUserId(request), body.refundDeposit);
+  const result = await archiveCustomer(
+    request.server,
+    params.id,
+    getCurrentUserId(request),
+    body.refundDeposit,
+  );
 
   return reply.send(result);
 }

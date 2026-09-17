@@ -6,6 +6,7 @@ import {
   createCustomerHandler,
   getCustomerAuditLogsHandler,
   getCustomerBillsHandler,
+  getCustomerByCardNumberHandler,
   getCustomerByIdHandler,
   getCustomerCardAssignmentHandler,
   getCustomerCardHistoryHandler,
@@ -27,6 +28,7 @@ export const customerRoutes: FastifyPluginAsync = async (app) => {
   app.get("/", getCustomersHandler);
   app.post("/", createCustomerHandler);
 
+  app.get("/lookup", getCustomerByCardNumberHandler);
   app.get("/:id", getCustomerByIdHandler);
   app.patch("/:id", { preHandler: authorizeDepositCorrection }, updateCustomerHandler);
   app.post("/:id/deposits/top-up", { preHandler: authorizeRoles("owner", "manager") }, topUpDepositHandler);

@@ -89,7 +89,7 @@ function renderPaginationItems(currentPage: number, pageCount: number) {
 }
 
 export default function MilkTypesTab() {
-  const { openMilkTypeForm } = useModalStore();
+  const { openMilkTypeForm, openConfirmation } = useModalStore();
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
@@ -140,16 +140,22 @@ export default function MilkTypesTab() {
     setPageIndex(Math.min(Math.max(nextPageIndex, 0), totalPages - 1));
   }
 
-  async function handleToggleStatus(milkType: MilkType) {
-    try {
-      if (milkType.status === "active") {
-        await archiveMilkTypeMutation.mutateAsync(milkType._id);
-      } else {
-        await restoreMilkTypeMutation.mutateAsync(milkType._id);
-      }
-    } catch {
-      // Mutation hooks already expose the error to the query layer/toast flow.
-    }
+  function handleToggleStatus(milkType: MilkType) {
+    const isActive = milkType.status === "active";
+
+    openConfirmation({
+      title: `${isActive ? "Deactivate" : "Activate"} ${milkType.name}?`,
+      description: isActive
+        ? "This milk type will no longer be available for new customer selections or entries. You can activate it again later."
+        : "This milk type will become available again for active customer workflows.",
+      confirmLabel: isActive ? "Deactivate" : "Activate",
+      variant: isActive ? "destructive" : "default",
+      successMessage: `${milkType.name} ${isActive ? "deactivated" : "activated"}`,
+      onConfirm: () =>
+        isActive
+          ? archiveMilkTypeMutation.mutateAsync(milkType._id).then(() => undefined)
+          : restoreMilkTypeMutation.mutateAsync(milkType._id).then(() => undefined),
+    });
   }
 
   const isMutating =

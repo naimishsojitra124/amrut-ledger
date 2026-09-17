@@ -182,11 +182,7 @@ export function useAddDailyLedgerEntryMutation() {
 
       queryClient.setQueryData(queryKey, ledger);
 
-      await invalidateCustomerLedgerChanged(
-        queryClient,
-        variables.customerId,
-        variables.date,
-      );
+      await invalidateCustomerLedgerChanged(queryClient, variables.customerId);
     },
   });
 }
@@ -233,11 +229,7 @@ export function useUpdateDailyLedgerEntryMutation() {
 
       queryClient.setQueryData(queryKey, ledger);
 
-      await invalidateCustomerLedgerChanged(
-        queryClient,
-        variables.customerId,
-        variables.date,
-      );
+      await invalidateCustomerLedgerChanged(queryClient, variables.customerId);
     },
   });
 }
@@ -268,11 +260,7 @@ export function useDeleteDailyLedgerEntryMutation() {
 
       queryClient.setQueryData(queryKey, ledger);
 
-      await invalidateCustomerLedgerChanged(
-        queryClient,
-        variables.customerId,
-        variables.date,
-      );
+      await invalidateCustomerLedgerChanged(queryClient, variables.customerId);
     },
   });
 }

@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 
 import { formatCurrency } from "@/utils/format-currency";
 import type { Customer } from "@/types/customer";
+import { useRestoreCustomerMutation } from "@/services/customer.service";
+import { useModalStore } from "@/store/modal.store";
 
 type CustomerOverviewTabProps = {
   customer: Customer;
@@ -56,6 +58,12 @@ export default function CustomerOverviewTab({
   onViewBills,
   onViewLedger,
 }: CustomerOverviewTabProps) {
+  const openCustomerCloseConfirm = useModalStore(
+    (state) => state.openCustomerCloseConfirm,
+  );
+  const openConfirmation = useModalStore((state) => state.openConfirmation);
+  const restoreCustomerMutation = useRestoreCustomerMutation();
+
   const primaryMilk = customer.milkTypes.find((milk) => milk.isDefault) ?? null;
 
   const otherMilkTypes = customer.milkTypes.filter((milk) => !milk.isDefault);
@@ -321,6 +329,13 @@ export default function CustomerOverviewTab({
               variant="outline"
               className="h-auto min-h-11 justify-start gap-2 rounded-md bg-transparent px-3 py-2 text-left text-red-600 hover:bg-red-50 hover:text-red-500"
               type="button"
+              onClick={() =>
+                openCustomerCloseConfirm({
+                  customerId: customer.id,
+                  customerName: customer.fullName,
+                  depositAmount: customer.depositAmount,
+                })
+              }
             >
               <Ban className="h-4 w-4 shrink-0" />
               <span className="truncate">Close Customer</span>
@@ -330,6 +345,16 @@ export default function CustomerOverviewTab({
               variant="outline"
               className="h-auto min-h-11 justify-start gap-2 rounded-md bg-transparent px-3 py-2 text-left text-emerald-600 hover:bg-emerald-100 hover:text-emerald-600"
               type="button"
+              disabled={restoreCustomerMutation.isPending}
+              onClick={() =>
+                openConfirmation({
+                  title: `Reopen ${customer.fullName}?`,
+                  description: "This customer will become active again and can be used in normal customer workflows.",
+                  confirmLabel: "Reopen Customer",
+                  successMessage: "Customer reopened",
+                  onConfirm: () => restoreCustomerMutation.mutateAsync(customer.id).then(() => undefined),
+                })
+              }
             >
               <RotateCcw className="h-4 w-4 shrink-0" />
               <span className="truncate">Reopen Customer</span>

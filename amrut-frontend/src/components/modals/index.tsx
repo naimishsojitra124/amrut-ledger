@@ -6,12 +6,14 @@ import { MilkTypeFormModal } from "./milk-type-form-modal";
 import { ProductSuggestionFormModal } from "./product-suggestion-form-modal";
 import CloseCustomerConfirmModal from "./close-customer-confirmation-modal";
 import DeleteFunctionOrderConfirmationModal from "./delete-function-order-confirmation-modal";
+import ConfirmationDialog from "@/components/common/confirmation-dialog";
 
 export function AppModals() {
   return (
     <>
       <CustomerFormModal />
       <CloseCustomerConfirmModal />
+      <ConfirmationDialog />
       <PaymentModal />
       <GenerateBillModal />
       <OutstandingLedgerModal />

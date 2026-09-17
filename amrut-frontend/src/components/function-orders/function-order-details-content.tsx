@@ -140,19 +140,16 @@ export default function FunctionOrderDetailsContent({
           showMovements
         />
 
-        <div className="mt-5 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-5 flex flex-col gap-3 border-t pt-4">
           <Button
             type="button"
-            variant="destructive"
+            onClick={() => void saveEdit()}
             disabled={update.isPending}
-            onClick={deleteOrder}
-            className="w-full sm:w-auto"
           >
-            <Trash2 className="mr-1 h-4 w-4" />
-            Delete
+            {update.isPending ? "Saving…" : "Save changes"}
           </Button>
 
-          <div className="grid grid-cols-2 gap-2 sm:flex">
+          <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
               variant="outline"
@@ -165,10 +162,13 @@ export default function FunctionOrderDetailsContent({
 
             <Button
               type="button"
-              onClick={() => void saveEdit()}
+              variant="destructive"
               disabled={update.isPending}
+              onClick={deleteOrder}
+              className="w-full sm:w-auto"
             >
-              {update.isPending ? "Saving…" : "Save changes"}
+              <Trash2 className="mr-1 h-4 w-4" />
+              Delete
             </Button>
           </div>
         </div>
