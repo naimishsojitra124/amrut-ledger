@@ -38,7 +38,7 @@ export interface CustomerResponse {
   id: string;
   fullName: string;
   searchName: string;
-  mobileNumber: string | null;
+  mobileNumber: string;
   address: string;
   depositAmount: number;
   status: CustomerStatus;
@@ -71,7 +71,7 @@ export interface CustomerStatsResponse {
 
 export interface CreateCustomerRequest {
   fullName: string;
-  mobileNumber?: string;
+  mobileNumber: string;
   address: string;
   depositAmount?: number;
   primaryMilkTypeId: string;
@@ -110,6 +110,30 @@ export interface CustomerDailyHistoryItemResponse {
   updatedAt: string;
 }
 
+export interface CustomerBillSummaryResponse {
+  totalBills: number;
+  totalBilled: number;
+  totalPaid: number;
+  outstanding: number;
+}
+
+export interface CustomerPaymentSummaryResponse {
+  totalPayments: number;
+  totalPaid: number;
+  totalBilled: number;
+  outstanding: number;
+  lastPaymentAt: string | null;
+  outstandingBillCount: number;
+}
+
+export interface CustomerNextOutstandingBillResponse {
+  id: string;
+  billNumber: string;
+  month: number;
+  year: number;
+  outstandingAmount: number;
+}
+
 export interface CustomerDailyHistoryResponse {
   items: CustomerDailyHistoryItemResponse[];
   pageInfo: PageInfo;
@@ -133,5 +157,11 @@ export interface CustomerAuditLogResponse {
 
 export interface CustomerCardAssignmentResponse extends CardAssignmentSummaryResponse {}
 
-export interface CustomerBillListResponse extends BillListResponse {}
-export interface CustomerPaymentListResponse extends PaymentListResponse {}
+export interface CustomerBillListResponse extends BillListResponse {
+  summary: CustomerBillSummaryResponse;
+}
+
+export interface CustomerPaymentListResponse extends PaymentListResponse {
+  summary: CustomerPaymentSummaryResponse;
+  nextOutstandingBill: CustomerNextOutstandingBillResponse | null;
+}

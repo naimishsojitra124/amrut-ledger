@@ -156,7 +156,13 @@ export async function getCustomerPaymentsHandler(request: FastifyRequest, reply:
 export async function getCustomerAuditLogsHandler(request: FastifyRequest, reply: FastifyReply) {
   const params = customerIdParamSchema.parse(request.params);
   const query = customerPageQuerySchema.parse(request.query);
-  const result = await getCustomerAuditLogs(request.server, params.id, query);
+  const result = await getCustomerAuditLogs(
+    request.server,
+    params.id,
+    query.types === undefined
+      ? { page: query.page, limit: query.limit }
+      : { page: query.page, limit: query.limit, types: query.types },
+  );
 
   return reply.send(result);
 }

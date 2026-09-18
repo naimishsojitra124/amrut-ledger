@@ -1,5 +1,12 @@
 import { useMemo, useState } from "react";
-import { FileText, Info, Loader2, ScrollText } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  Info,
+  Loader2,
+  ScrollText,
+} from "lucide-react";
 
 import { QueryErrorState } from "@/components/common/query-error-state";
 import {
@@ -105,13 +112,16 @@ export default function CustomerBillsTab({ customerId, customer }: Props) {
   const openPayment = useModalStore((state) => state.openPayment);
 
   const [expandedBillId, setExpandedBillId] = useState<string | undefined>();
+  const [pageIndex, setPageIndex] = useState(0);
+
+  const PAGE_SIZE = 10;
 
   const generateBillMutation = useGenerateBillMutation();
 
   const { data, isPending, isError, error, isFetching, refetch } =
     useCustomerBillsQuery(customerId, {
-      page: 1,
-      limit: 100,
+      page: pageIndex + 1,
+      limit: PAGE_SIZE,
     });
 
   const {
@@ -131,22 +141,48 @@ export default function CustomerBillsTab({ customerId, customer }: Props) {
     [data?.items],
   );
 
-  const summary = useMemo(() => {
-    return customerBills.reduce(
-      (result, bill) => ({
-        totalBills: result.totalBills + 1,
-        totalBilled: result.totalBilled + bill.grandTotal,
-        totalPaid: result.totalPaid + bill.totalPaid,
-        outstanding: result.outstanding + bill.outstandingAmount,
-      }),
-      {
-        totalBills: 0,
-        totalBilled: 0,
-        totalPaid: 0,
-        outstanding: 0,
-      },
-    );
-  }, [customerBills]);
+  const summary = data?.summary ?? {
+    totalBills: 0,
+    totalBilled: 0,
+    totalPaid: 0,
+    outstanding: 0,
+  };
+
+  const pageInfo = data?.pageInfo;
+  const totalPages = pageInfo?.totalPages ?? 1;
+
+  const visiblePages = useMemo(() => {
+    if (totalPages <= 0) return [];
+
+    const current = pageIndex + 1;
+    const start = Math.max(1, Math.min(current - 1, totalPages - 2));
+    const end = Math.min(totalPages, start + 2);
+
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }, [pageIndex, totalPages]);
+
+  function goToPage(pageNumber: number) {
+    if (
+      pageNumber < 1 ||
+      pageNumber > totalPages ||
+      pageNumber === pageIndex + 1
+    )
+      return;
+    setPageIndex(pageNumber - 1);
+    setExpandedBillId(undefined);
+  }
+
+  function goToPreviousPage() {
+    if (!pageInfo?.hasPreviousPage) return;
+    setPageIndex((page) => Math.max(0, page - 1));
+    setExpandedBillId(undefined);
+  }
+
+  function goToNextPage() {
+    if (!pageInfo?.hasNextPage) return;
+    setPageIndex((page) => page + 1);
+    setExpandedBillId(undefined);
+  }
 
   async function handleViewBill() {
     if (!billDetail) {
@@ -466,6 +502,59 @@ export default function CustomerBillsTab({ customerId, customer }: Props) {
                 );
               })}
             </Accordion>
+
+            <div className="flex flex-col gap-3 border-t px-3 py-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between">
+              <p className="text-sm text-neutral-500">
+                Showing {customerBills.length ? pageIndex * PAGE_SIZE + 1 : 0}{" "}
+                to{" "}
+                {customerBills.length
+                  ? pageIndex * PAGE_SIZE + customerBills.length
+                  : 0}{" "}
+                of {pageInfo?.totalItems ?? 0} bills
+                {isFetching ? " • Updating..." : ""}
+              </p>
+
+              <div className="flex items-center justify-between gap-2 sm:justify-end">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  type="button"
+                  onClick={goToPreviousPage}
+                  disabled={!pageInfo?.hasPreviousPage}
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+
+                <div className="flex items-center gap-1">
+                  {visiblePages.map((pageNumber) => (
+                    <Button
+                      key={pageNumber}
+                      type="button"
+                      variant={
+                        pageIndex + 1 === pageNumber ? "default" : "outline"
+                      }
+                      className="h-9 w-9 p-0"
+                      onClick={() => goToPage(pageNumber)}
+                      aria-label={`Go to page ${pageNumber}`}
+                    >
+                      {pageNumber}
+                    </Button>
+                  ))}
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="icon"
+                  type="button"
+                  onClick={goToNextPage}
+                  disabled={!pageInfo?.hasNextPage}
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </>
         ) : (
           <div className="flex h-32 items-center justify-center px-4 text-center text-sm text-neutral-500">

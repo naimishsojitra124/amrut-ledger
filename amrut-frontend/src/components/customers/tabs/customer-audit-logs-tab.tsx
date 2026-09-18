@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -594,11 +594,11 @@ export default function CustomerAuditLogsTab({ customerId }: Props) {
     useCustomerAuditLogsQuery(customerId, {
       page: pageIndex + 1,
       limit: PAGE_SIZE,
+      types: activeTypes,
     });
 
   const rows = useMemo<AuditRow[]>(() => {
     return [...(data?.items ?? [])]
-      .filter((log) => activeTypes.includes(log.type))
       .sort(
         (a, b) =>
           new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime(),
@@ -617,6 +617,12 @@ export default function CustomerAuditLogsTab({ customerId }: Props) {
   const pageInfo = data?.pageInfo;
   const totalPages = pageInfo?.totalPages ?? 1;
   const totalItems = pageInfo?.totalItems ?? 0;
+
+  useEffect(() => {
+    if (pageIndex > 0 && pageIndex >= totalPages) {
+      setPageIndex(Math.max(0, totalPages - 1));
+    }
+  }, [pageIndex, totalPages]);
 
   const from = rows.length > 0 ? pageIndex * PAGE_SIZE + 1 : 0;
   const to = rows.length > 0 ? pageIndex * PAGE_SIZE + rows.length : 0;

@@ -1,6 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   BookOpen,
+  ChevronLeft,
+  ChevronRight,
   CreditCard,
   Info,
   Loader2,
@@ -20,7 +22,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  useCustomerBillsQuery,
   useCustomerPaymentsQuery,
 } from "@/services/customer.service";
 import type { CustomerPaymentItemResponse } from "@/types/customer";
@@ -70,13 +71,8 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
   );
   const openPayment = useModalStore((state) => state.openPayment);
 
-  const { data: billsData, isPending: isBillsPending } = useCustomerBillsQuery(
-    customerId,
-    {
-      page: 1,
-      limit: 100,
-    },
-  );
+  const [pageIndex, setPageIndex] = useState(0);
+  const PAGE_SIZE = 10;
 
   const {
     data,
@@ -85,24 +81,9 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
     error,
     isFetching,
   } = useCustomerPaymentsQuery(customerId, {
-    page: 1,
-    limit: 100,
+    page: pageIndex + 1,
+    limit: PAGE_SIZE,
   });
-
-  const customerBills = useMemo(
-    () =>
-      [...(billsData?.items ?? [])].sort(
-        (a, b) =>
-          new Date(b.year, b.month - 1, 1).getTime() -
-          new Date(a.year, a.month - 1, 1).getTime(),
-      ),
-    [billsData?.items],
-  );
-
-  const outstandingBills = useMemo(
-    () => customerBills.filter((bill) => bill.outstandingAmount > 0),
-    [customerBills],
-  );
 
   const customerPayments = useMemo(
     () =>
@@ -130,44 +111,53 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
     [customerPayments],
   );
 
-  const summary = useMemo(() => {
-    let totalPaid = 0;
-    let totalBilled = 0;
-    let outstanding = 0;
+  const summary = data?.summary ?? {
+    totalPaid: 0,
+    totalBilled: 0,
+    outstanding: 0,
+    totalPayments: 0,
+    lastPaymentAt: null,
+    outstandingBillCount: 0,
+  };
 
-    for (const payment of customerPayments) {
-      totalPaid += payment.creditedAmount;
-    }
+  const nextOutstandingBill = data?.nextOutstandingBill ?? null;
+  const pageInfo = data?.pageInfo;
+  const totalPages = pageInfo?.totalPages ?? 1;
 
-    for (const bill of customerBills) {
-      totalBilled += bill.grandTotal;
-      outstanding += bill.outstandingAmount;
-    }
+  const visiblePages = useMemo(() => {
+    if (totalPages <= 0) return [];
 
-    return {
-      totalPaid,
-      totalBilled,
-      outstanding,
-      totalPayments: customerPayments.length,
-      lastPayment: customerPayments[0]?.receivedAt ?? null,
-    };
-  }, [customerBills, customerPayments]);
+    const current = pageIndex + 1;
+    const start = Math.max(1, Math.min(current - 1, totalPages - 2));
+    const end = Math.min(totalPages, start + 2);
 
-  const outstandingTotal = useMemo(
-    () =>
-      outstandingBills.reduce(
-        (total, bill) => total + bill.outstandingAmount,
-        0,
-      ),
-    [outstandingBills],
-  );
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }, [pageIndex, totalPages]);
+
+  function goToPage(pageNumber: number) {
+    if (
+      pageNumber < 1 ||
+      pageNumber > totalPages ||
+      pageNumber === pageIndex + 1
+    )
+      return;
+    setPageIndex(pageNumber - 1);
+  }
+
+  function goToPreviousPage() {
+    if (!pageInfo?.hasPreviousPage) return;
+    setPageIndex((page) => Math.max(0, page - 1));
+  }
+
+  function goToNextPage() {
+    if (!pageInfo?.hasNextPage) return;
+    setPageIndex((page) => page + 1);
+  }
 
   const handleAddPayment = () => {
-    const bill = outstandingBills[0];
-
-    if (bill) {
+    if (nextOutstandingBill) {
       openPayment({
-        billId: bill.id,
+        billId: nextOutstandingBill.id,
         customerId,
       });
     }
@@ -194,7 +184,7 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
     });
   };
 
-  if (isPaymentsPending || isBillsPending) {
+  if (isPaymentsPending) {
     return (
       <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-neutral-500">
         <Loader2 className="h-4 w-4 animate-spin" />
@@ -236,8 +226,8 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
         <SummaryCard
           label="Last Payment"
           value={
-            summary.lastPayment
-              ? DATE_FORMATTER.format(new Date(summary.lastPayment))
+            summary.lastPaymentAt
+              ? DATE_FORMATTER.format(new Date(summary.lastPaymentAt))
               : "—"
           }
         />
@@ -247,7 +237,7 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
         size="lg"
         className="w-full gap-2 rounded-md"
         type="button"
-        disabled={outstandingBills.length === 0}
+        disabled={!nextOutstandingBill}
         onClick={handleAddPayment}
       >
         <Plus className="h-4 w-4" />
@@ -336,6 +326,56 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
             No payment history available.
           </div>
         )}
+
+        <div className="flex flex-col gap-3 border-t px-3 py-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between">
+          <p className="text-sm text-neutral-500">
+            Showing {customerPayments.length ? pageIndex * PAGE_SIZE + 1 : 0} to{" "}
+            {customerPayments.length
+              ? pageIndex * PAGE_SIZE + customerPayments.length
+              : 0}{" "}
+            of {pageInfo?.totalItems ?? 0} payments
+            {isFetching ? " • Updating..." : ""}
+          </p>
+
+          <div className="flex items-center justify-between gap-2 sm:justify-end">
+            <Button
+              variant="outline"
+              size="icon"
+              type="button"
+              onClick={goToPreviousPage}
+              disabled={!pageInfo?.hasPreviousPage}
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+
+            <div className="flex items-center gap-1">
+              {visiblePages.map((pageNumber) => (
+                <Button
+                  key={pageNumber}
+                  type="button"
+                  variant={pageIndex + 1 === pageNumber ? "default" : "outline"}
+                  className="h-9 w-9 p-0"
+                  onClick={() => goToPage(pageNumber)}
+                  aria-label={`Go to page ${pageNumber}`}
+                >
+                  {pageNumber}
+                </Button>
+              ))}
+            </div>
+
+            <Button
+              variant="outline"
+              size="icon"
+              type="button"
+              onClick={goToNextPage}
+              disabled={!pageInfo?.hasNextPage}
+              aria-label="Next page"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="rounded-lg border px-3 py-3 sm:px-4">
@@ -374,7 +414,7 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
             variant="outline"
             className="h-auto min-h-10 gap-2 whitespace-normal"
             type="button"
-            disabled={outstandingBills.length === 0}
+            disabled={summary.outstandingBillCount === 0}
             onClick={() =>
               openOutstandingLedger({
                 customerId,
@@ -408,7 +448,7 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
         </p>
       </div>
 
-      {outstandingBills.length > 0 && (
+      {summary.outstandingBillCount > 0 && (
         <div className="rounded-lg border bg-red-50/50 px-3 py-3 sm:px-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-medium text-neutral-600">
@@ -416,7 +456,8 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
             </span>
 
             <span className="text-sm font-semibold text-red-600">
-              {outstandingBills.length} · {formatCurrency(outstandingTotal)}
+              {summary.outstandingBillCount} ·{" "}
+              {formatCurrency(summary.outstanding)}
             </span>
           </div>
         </div>

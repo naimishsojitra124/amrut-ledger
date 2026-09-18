@@ -28,34 +28,107 @@ type CardAssignmentWithRelations = Prisma.CardAssignmentGetPayload<{
   };
 }>;
 
-type BillWithRelations = Prisma.BillGetPayload<{
-  include: {
-    customer: true;
-    cardAssignment: {
-      include: {
-        card: true;
+type DailyLedgerRecord = Prisma.DailyLedgerGetPayload<{}>;
+
+interface CustomerAuditLogDetail {
+  field: string;
+  oldValue: unknown;
+  newValue: unknown;
+}
+
+interface CustomerAuditLogDetailResponse {
+  field: string;
+  oldValue: string;
+  newValue: string;
+}
+
+type CustomerAuditLogRecord = Prisma.AuditLogGetPayload<{
+  select: {
+    id: true;
+    type: true;
+    title: true;
+    details: true;
+    performedAt: true;
+    relatedEntityType: true;
+    relatedEntityId: true;
+    performedBy: {
+      select: {
+        id: true;
+        fullName: true;
       };
     };
-    generatedBy: true;
   };
 }>;
 
-type PaymentWithRelations = Prisma.PaymentGetPayload<{
+interface CustomerBillsQuery {
+  page?: number;
+  limit?: number;
+  month?: number;
+  year?: number;
+  status?: any;
+  search?: string | undefined;
+}
+
+type CustomerBillListItem = CustomerBillListResponse["items"][number];
+
+type CustomerBillRecord = Prisma.BillGetPayload<{
   include: {
-    customer: true;
-    bill: true;
-    receivedBy: true;
-    editedBy: true;
+    customer: {
+      select: {
+        id: true;
+        fullName: true;
+        mobileNumber: true;
+      };
+    };
+    cardAssignment: {
+      select: {
+        id: true;
+        cardId: true;
+        assignedAt: true;
+        unassignedAt: true;
+        depositAtAssignment: true;
+        card: {
+          select: {
+            cardNumber: true;
+          };
+        };
+      };
+    };
   };
 }>;
-
-type AuditLogWithRelations = Prisma.AuditLogGetPayload<{
+interface CustomerPaymentRecord extends Prisma.PaymentGetPayload<{
   include: {
-    performedBy: true;
+    customer: {
+      select: {
+        id: true;
+        fullName: true;
+        mobileNumber: true;
+      };
+    };
+    bill: {
+      select: {
+        id: true;
+        billNumber: true;
+        month: true;
+        year: true;
+        status: true;
+        outstandingAmount: true;
+      };
+    };
+    receivedBy: {
+      select: {
+        id: true;
+        fullName: true;
+      };
+    };
+    editedBy: {
+      select: {
+        id: true;
+        fullName: true;
+      };
+    };
   };
-}>;
-
-type DailyLedgerRecord = Prisma.DailyLedgerGetPayload<{}>;
+}> {}
 
 function createHttpError(statusCode: number, message: string) {
   const error = new Error(message) as Error & { statusCode: number };
@@ -212,10 +285,7 @@ async function loadCustomerMilkTypesMap(
     milkTypes: unknown;
   }>,
 ) {
-  const embeddedByCustomer = new Map<
-    string,
-    { milkTypeId: string; isDefault: boolean }[]
-  >();
+  const embeddedByCustomer = new Map<string, { milkTypeId: string; isDefault: boolean }[]>();
   const milkTypeIds = new Set<string>();
 
   for (const customer of customers) {
@@ -308,7 +378,7 @@ async function normalizeCustomer(prisma: PrismaClient, customer: any): Promise<C
     id: customer.id,
     fullName: customer.fullName,
     searchName: customer.searchName,
-    mobileNumber: customer.mobileNumber,
+    mobileNumber: customer.mobileNumber ?? "",
     address: customer.address,
     depositAmount: customer.depositAmount ?? 0,
     status: customer.status,
@@ -556,36 +626,31 @@ async function buildCustomerListWhere(prisma: PrismaClient, query: CustomerListQ
       { searchName: { contains: search, mode: "insensitive" } },
     ];
 
-    if (/^\d+$/.test(search) && query.status !== "archived") {
+    if (/^\d+$/.test(search)) {
       // Card numbers are Ints, so Prisma cannot perform substring matching
-      // directly. Search only active assignments instead of loading the
-      // entire card inventory and then resolving assignments in a second query.
-      const activeAssignments = await prisma.cardAssignment.findMany({
-        where: { unassignedAt: null },
-        select: {
-          customerId: true,
-          card: {
-            select: {
-              cardNumber: true,
-            },
-          },
-        },
+      // against them. Resolve matching card assignments once, then include
+      // those customer IDs in the database-level customer filter.
+      const cards = await prisma.card.findMany({
+        select: { id: true, cardNumber: true },
       });
+      const matchingCardIds = cards
+        .filter((card) => card.cardNumber.toString().includes(search))
+        .map((card) => card.id);
 
-      const matchingCustomerIds = [
-        ...new Set(
-          activeAssignments
-            .filter((assignment) =>
-              assignment.card.cardNumber.toString().includes(search),
-            )
-            .map((assignment) => assignment.customerId),
-        ),
-      ];
-
-      if (matchingCustomerIds.length > 0) {
-        customerFieldMatches.push({
-          id: { in: matchingCustomerIds },
+      if (matchingCardIds.length > 0) {
+        const matchingAssignments = await prisma.cardAssignment.findMany({
+          where: {
+            cardId: { in: matchingCardIds },
+            unassignedAt: null,
+          },
+          select: { customerId: true },
         });
+
+        if (matchingAssignments.length > 0) {
+          customerFieldMatches.push({
+            id: { in: [...new Set(matchingAssignments.map((item) => item.customerId))] },
+          });
+        }
       }
     }
 
@@ -617,23 +682,19 @@ async function fetchCustomerBaseList(
 
   const customerIds = customers.map((customer) => customer.id);
 
-  const [
-    outstandingByCustomer,
-    lastEntryByCustomer,
-    currentCardByCustomer,
-    milkTypesByCustomer,
-  ] = await Promise.all([
-    loadCustomerOutstandingMap(prisma, customerIds),
-    loadCustomerLastEntryMap(prisma, customerIds),
-    loadCustomerCurrentCardMap(prisma, customerIds),
-    loadCustomerMilkTypesMap(prisma, customers),
-  ]);
+  const [outstandingByCustomer, lastEntryByCustomer, currentCardByCustomer, milkTypesByCustomer] =
+    await Promise.all([
+      loadCustomerOutstandingMap(prisma, customerIds),
+      loadCustomerLastEntryMap(prisma, customerIds),
+      loadCustomerCurrentCardMap(prisma, customerIds),
+      loadCustomerMilkTypesMap(prisma, customers),
+    ]);
 
   const normalized = customers.map((customer) => ({
     id: customer.id,
     fullName: customer.fullName,
     searchName: customer.searchName,
-    mobileNumber: customer.mobileNumber,
+    mobileNumber: customer.mobileNumber ?? "",
     address: customer.address,
     depositAmount: customer.depositAmount ?? 0,
     status: customer.status,
@@ -788,7 +849,7 @@ export async function createCustomer(
       data: {
         fullName: input.fullName.trim(),
         searchName: getSearchName(input.fullName),
-        mobileNumber: input.mobileNumber?.trim() || null,
+        mobileNumber: input.mobileNumber.trim(),
         address: input.address.trim(),
         depositAmount,
         status: "active",
@@ -1503,42 +1564,92 @@ export async function getCustomerCardHistory(
 export async function getCustomerBills(
   app: FastifyInstance,
   id: string,
-  query: {
-    page?: number;
-    limit?: number;
-    month?: number;
-    year?: number;
-    status?: any;
-    search?: string | undefined;
-  },
+  query: CustomerBillsQuery,
 ): Promise<CustomerBillListResponse> {
   const prisma = getPrisma(app);
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
+  const search = query.search?.trim();
 
-  const where: any = { customerId: id };
+  const where: Prisma.BillWhereInput = { customerId: id };
   if (query.month !== undefined) where.month = query.month;
   if (query.year !== undefined) where.year = query.year;
   if (query.status !== undefined) where.status = query.status;
 
-  const bills = await prisma.bill.findMany({
+  if (search) {
+    const searchMatches: Prisma.BillWhereInput[] = [
+      { billNumber: { contains: search, mode: "insensitive" } },
+    ];
+
+    const numericSearch = Number(search);
+    if (Number.isInteger(numericSearch) && numericSearch >= 0) {
+      searchMatches.push({ month: numericSearch });
+      searchMatches.push({ year: numericSearch });
+    }
+
+    where.OR = searchMatches;
+  }
+
+  const [totalItems, summary] = await Promise.all([
+    prisma.bill.count({ where }),
+    prisma.bill.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: {
+        grandTotal: true,
+        totalPaid: true,
+        outstandingAmount: true,
+      },
+    }),
+  ]);
+
+  const safePage = totalItems === 0 ? 1 : Math.min(page, Math.ceil(totalItems / limit));
+  const skip = (safePage - 1) * limit;
+
+  const bills: CustomerBillRecord[] = await prisma.bill.findMany({
     where,
     orderBy: [{ year: "desc" }, { month: "desc" }, { generatedAt: "desc" }],
+    skip,
+    take: limit,
     include: {
-      customer: true,
-      cardAssignment: { include: { card: true } },
-      generatedBy: true,
+      customer: {
+        select: {
+          id: true,
+          fullName: true,
+          mobileNumber: true,
+        },
+      },
+      cardAssignment: {
+        select: {
+          id: true,
+          cardId: true,
+          assignedAt: true,
+          unassignedAt: true,
+          depositAtAssignment: true,
+          card: {
+            select: {
+              cardNumber: true,
+            },
+          },
+        },
+      },
+      generatedBy: {
+        select: {
+          id: true,
+          fullName: true,
+        },
+      },
     },
   });
 
-  let items = bills.map((bill: BillWithRelations) => ({
+  const items: CustomerBillListItem[] = bills.map((bill): CustomerBillListItem => ({
     id: bill.id,
     billNumber: bill.billNumber,
     customerId: bill.customerId,
     customer: {
       id: bill.customer.id,
       fullName: bill.customer.fullName,
-      mobileNumber: bill.customer.mobileNumber,
+      mobileNumber: bill.customer.mobileNumber ?? "",
     },
     cardAssignment: {
       id: bill.cardAssignment.id,
@@ -1565,29 +1676,14 @@ export async function getCustomerBills(
     generatedAt: bill.generatedAt.toISOString(),
   }));
 
-  if (query.search) {
-    const s = query.search.trim().toLowerCase();
-    items = items.filter(
-      (bill: BillWithRelations) =>
-        bill.billNumber.toLowerCase().includes(s) ||
-        bill.month.toString().includes(s) ||
-        bill.year.toString().includes(s),
-    );
-  }
-
-  const totalItems = items.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
-  const safePage = Math.min(page, totalPages);
-
   return {
-    items: items.slice((safePage - 1) * limit, (safePage - 1) * limit + limit),
-    pageInfo: {
-      page: safePage,
-      limit,
-      totalItems,
-      totalPages,
-      hasNextPage: safePage < totalPages,
-      hasPreviousPage: safePage > 1,
+    items,
+    pageInfo: buildPageInfo(totalItems, safePage, limit),
+    summary: {
+      totalBills: summary._count._all,
+      totalBilled: summary._sum.grandTotal ?? 0,
+      totalPaid: summary._sum.totalPaid ?? 0,
+      outstanding: summary._sum.outstandingAmount ?? 0,
     },
   };
 }
@@ -1608,138 +1704,253 @@ export async function getCustomerPayments(
   const prisma = getPrisma(app);
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
+  const search = query.search?.trim();
 
-  const where: any = { customerId: id };
+  const where: Prisma.PaymentWhereInput = { customerId: id };
   if (query.billId) where.billId = query.billId;
   if (query.billMonth !== undefined) where.billMonth = query.billMonth;
   if (query.billYear !== undefined) where.billYear = query.billYear;
   if (query.paymentMethod !== undefined) where.paymentMethod = query.paymentMethod;
 
+  if (search) {
+    const searchMatches: Prisma.PaymentWhereInput[] = [
+      { receiptNumber: { contains: search, mode: "insensitive" } },
+      { referenceNumber: { contains: search, mode: "insensitive" } },
+      {
+        bill: {
+          billNumber: { contains: search, mode: "insensitive" },
+        },
+      },
+    ];
+
+    where.OR = searchMatches;
+  }
+
+  const [totalItems, paymentAggregate, billAggregate, outstandingBillCount, nextOutstandingBill] =
+    await Promise.all([
+      prisma.payment.count({ where }),
+      prisma.payment.aggregate({
+        where,
+        _count: { _all: true },
+        _sum: {
+          amount: true,
+          depositUsed: true,
+        },
+        _max: {
+          receivedAt: true,
+        },
+      }),
+      prisma.bill.aggregate({
+        where: { customerId: id },
+        _sum: {
+          grandTotal: true,
+          outstandingAmount: true,
+        },
+      }),
+      prisma.bill.count({
+        where: {
+          customerId: id,
+          outstandingAmount: { gt: 0 },
+        },
+      }),
+      prisma.bill.findFirst({
+        where: {
+          customerId: id,
+          outstandingAmount: { gt: 0 },
+        },
+        orderBy: [{ year: "desc" }, { month: "desc" }, { generatedAt: "desc" }],
+        select: {
+          id: true,
+          billNumber: true,
+          month: true,
+          year: true,
+          outstandingAmount: true,
+        },
+      }),
+    ]);
+
+  const safePage = totalItems === 0 ? 1 : Math.min(page, Math.ceil(totalItems / limit));
+  const skip = (safePage - 1) * limit;
+
   const payments = await prisma.payment.findMany({
     where,
     orderBy: { receivedAt: "desc" },
+    skip,
+    take: limit,
     include: {
-      customer: true,
-      bill: true,
-      receivedBy: true,
-      editedBy: true,
+      customer: {
+        select: {
+          id: true,
+          fullName: true,
+          mobileNumber: true,
+        },
+      },
+      bill: {
+        select: {
+          id: true,
+          billNumber: true,
+          month: true,
+          year: true,
+          status: true,
+          outstandingAmount: true,
+        },
+      },
+      receivedBy: {
+        select: {
+          id: true,
+          fullName: true,
+        },
+      },
+      editedBy: {
+        select: {
+          id: true,
+          fullName: true,
+        },
+      },
     },
   });
 
-  let items = payments.map((payment: PaymentWithRelations) => ({
-    id: payment.id,
-    customerId: payment.customerId,
-    customer: {
-      id: payment.customer.id,
-      fullName: payment.customer.fullName,
-      mobileNumber: payment.customer.mobileNumber,
-    },
-    billId: payment.billId,
-    bill: {
-      id: payment.bill.id,
-      billNumber: payment.bill.billNumber,
-      month: payment.bill.month,
-      year: payment.bill.year,
-      status: payment.bill.status,
-      outstandingAmount: payment.bill.outstandingAmount ?? 0,
-    },
-    billMonth: payment.billMonth,
-    billYear: payment.billYear,
-    receiptNumber: payment.receiptNumber,
-    amount: payment.amount,
-    depositUsed: payment.depositUsed ?? 0,
-    creditedAmount: (payment.amount ?? 0) + (payment.depositUsed ?? 0),
-    paymentMethod: payment.paymentMethod,
-    referenceNumber: payment.referenceNumber ?? "",
-    notes: payment.notes ?? "",
-    receivedAt: payment.receivedAt.toISOString(),
-    receivedBy: {
-      id: payment.receivedBy.id,
-      fullName: payment.receivedBy.fullName,
-    },
-    editedAt: payment.editedAt ? payment.editedAt.toISOString() : null,
-    editedBy: payment.editedBy
-      ? {
-          id: payment.editedBy.id,
-          fullName: payment.editedBy.fullName,
-        }
-      : null,
-  }));
+  type CustomerPaymentItem = CustomerPaymentListResponse["items"][number];
 
-  if (query.search) {
-    const s = query.search.trim().toLowerCase();
-    items = items.filter(
-      (payment: PaymentWithRelations) =>
-        payment.receiptNumber.toLowerCase().includes(s) ||
-        payment.referenceNumber.toLowerCase().includes(s) ||
-        payment.bill.billNumber.toLowerCase().includes(s),
-    );
-  }
-
-  const totalItems = items.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
-  const safePage = Math.min(page, totalPages);
+  const items: CustomerPaymentItem[] = payments.map(
+    (payment: CustomerPaymentRecord): CustomerPaymentItem => ({
+      id: payment.id,
+      customerId: payment.customerId,
+      customer: {
+        id: payment.customer.id,
+        fullName: payment.customer.fullName,
+        mobileNumber: payment.customer.mobileNumber ?? "",
+      },
+      billId: payment.billId,
+      bill: {
+        id: payment.bill.id,
+        billNumber: payment.bill.billNumber,
+        month: payment.bill.month,
+        year: payment.bill.year,
+        status: payment.bill.status,
+        outstandingAmount: payment.bill.outstandingAmount ?? 0,
+      },
+      billMonth: payment.billMonth,
+      billYear: payment.billYear,
+      receiptNumber: payment.receiptNumber ?? "",
+      amount: payment.amount,
+      depositUsed: payment.depositUsed ?? 0,
+      creditedAmount: (payment.amount ?? 0) + (payment.depositUsed ?? 0),
+      paymentMethod: payment.paymentMethod,
+      referenceNumber: payment.referenceNumber ?? "",
+      notes: payment.notes ?? "",
+      receivedAt: payment.receivedAt.toISOString(),
+      receivedBy: {
+        id: payment.receivedBy.id,
+        fullName: payment.receivedBy.fullName,
+      },
+      editedAt: payment.editedAt ? payment.editedAt.toISOString() : null,
+      editedBy: payment.editedBy
+        ? {
+            id: payment.editedBy.id,
+            fullName: payment.editedBy.fullName,
+          }
+        : null,
+    }),
+  );
 
   return {
-    items: items.slice((safePage - 1) * limit, (safePage - 1) * limit + limit),
-    pageInfo: {
-      page: safePage,
-      limit,
-      totalItems,
-      totalPages,
-      hasNextPage: safePage < totalPages,
-      hasPreviousPage: safePage > 1,
+    items,
+    pageInfo: buildPageInfo(totalItems, safePage, limit),
+    summary: {
+      totalPayments: paymentAggregate._count._all,
+      totalPaid: (paymentAggregate._sum.amount ?? 0) + (paymentAggregate._sum.depositUsed ?? 0),
+      totalBilled: billAggregate._sum.grandTotal ?? 0,
+      outstanding: billAggregate._sum.outstandingAmount ?? 0,
+      lastPaymentAt: paymentAggregate._max.receivedAt
+        ? paymentAggregate._max.receivedAt.toISOString()
+        : null,
+      outstandingBillCount,
     },
+    nextOutstandingBill: nextOutstandingBill
+      ? {
+          id: nextOutstandingBill.id,
+          billNumber: nextOutstandingBill.billNumber,
+          month: nextOutstandingBill.month,
+          year: nextOutstandingBill.year,
+          outstandingAmount: nextOutstandingBill.outstandingAmount,
+        }
+      : null,
   };
 }
 
 export async function getCustomerAuditLogs(
   app: FastifyInstance,
   id: string,
-  query: { page?: number; limit?: number },
+  query: {
+    page?: number;
+    limit?: number;
+    types?: string[];
+  },
 ): Promise<CustomerAuditLogResponse> {
   const prisma = getPrisma(app);
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
+  const skip = (page - 1) * limit;
 
-  const logs = await prisma.auditLog.findMany({
-    where: { customerId: id },
-    orderBy: { performedAt: "desc" },
-    include: { performedBy: true },
-  });
+  const where: Prisma.AuditLogWhereInput = { customerId: id };
 
-  const items: CustomerAuditLogItemResponse[] = logs.map((log: AuditLogWithRelations) => ({
-    id: log.id,
-    type: log.type,
-    title: log.title,
-    details: (log.details ?? []).map((item: any) => ({
-      field: item.field,
-      oldValue: item.oldValue,
-      newValue: item.newValue,
-    })),
-    performedBy: {
-      id: log.performedBy.id,
-      fullName: log.performedBy.fullName,
-    },
-    performedAt: log.performedAt.toISOString(),
-    relatedEntityType: log.relatedEntityType ?? null,
-    relatedEntityId: log.relatedEntityId ?? null,
-  }));
+  if (query.types?.length) {
+    where.type = { in: query.types as any };
+  }
 
-  const totalItems = items.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
-  const safePage = Math.min(page, totalPages);
+  const [totalItems, logs] = await Promise.all([
+    prisma.auditLog.count({ where }),
+    prisma.auditLog.findMany({
+      where,
+      orderBy: { performedAt: "desc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        details: true,
+        performedAt: true,
+        relatedEntityType: true,
+        relatedEntityId: true,
+        performedBy: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  const safePage = totalItems === 0 ? 1 : Math.min(page, Math.ceil(totalItems / limit));
+
+  const items: CustomerAuditLogItemResponse[] = logs.map(
+    (log: CustomerAuditLogRecord): CustomerAuditLogItemResponse => ({
+      id: log.id,
+      type: log.type,
+      title: log.title,
+      details: (log.details ?? []).map(
+        (item: CustomerAuditLogDetail): CustomerAuditLogDetailResponse => ({
+          field: item.field,
+          oldValue: String(item.oldValue ?? ""),
+          newValue: String(item.newValue ?? ""),
+        }),
+      ),
+      performedBy: {
+        id: log.performedBy.id,
+        fullName: log.performedBy.fullName,
+      },
+      performedAt: log.performedAt.toISOString(),
+      relatedEntityType: log.relatedEntityType ?? null,
+      relatedEntityId: log.relatedEntityId ?? null,
+    }),
+  );
 
   return {
-    items: items.slice((safePage - 1) * limit, (safePage - 1) * limit + limit),
-    pageInfo: {
-      page: safePage,
-      limit,
-      totalItems,
-      totalPages,
-      hasNextPage: safePage < totalPages,
-      hasPreviousPage: safePage > 1,
-    },
+    items,
+    pageInfo: buildPageInfo(totalItems, safePage, limit),
   };
 }
 
@@ -1752,8 +1963,17 @@ export async function getCustomerDailyHistory(
   const month = query.month ?? new Date().getMonth() + 1;
   const year = query.year ?? new Date().getFullYear();
 
+  const startOfMonth = new Date(Date.UTC(year, month - 1, 1));
+  const startOfNextMonth = new Date(Date.UTC(year, month, 1));
+
   const ledgers = await prisma.dailyLedger.findMany({
-    where: { customerId: id },
+    where: {
+      customerId: id,
+      ledgerDate: {
+        gte: startOfMonth,
+        lt: startOfNextMonth,
+      },
+    },
     orderBy: { ledgerDate: "desc" },
   });
 
@@ -1765,17 +1985,8 @@ export async function getCustomerDailyHistory(
     updatedAt: ledger.updatedAt.toISOString(),
   }));
 
-  // filter by month/year
-  const filtered = items.filter((it) => {
-    const d = new Date(it.ledgerDate);
-    return d.getMonth() + 1 === month && d.getFullYear() === year;
-  });
-
-  const totalItems = filtered.length;
-  const pageInfo = buildPageInfo(totalItems, 1, totalItems || 1);
-
   return {
-    items: filtered,
-    pageInfo,
+    items,
+    pageInfo: buildPageInfo(items.length, 1, items.length || 1),
   };
 }

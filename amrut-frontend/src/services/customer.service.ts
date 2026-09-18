@@ -65,7 +65,6 @@ function mapCustomer(customer: CustomerListItemResponse) {
 
 export const customerQueryKeys = {
   all: ["customers"] as const,
-
   list: (query: CustomerListQuery = {}) =>
     [
       "customers",
@@ -77,15 +76,11 @@ export const customerQueryKeys = {
         search: query.search?.trim() ?? "",
       },
     ] as const,
-
   stats: () => ["customers", "stats"] as const,
-
   cardLookup: (cardNumber: string) =>
     ["customers", "card-lookup", cardNumber] as const,
-
   detail: (customerId: string | null) =>
     ["customers", "detail", customerId ?? ""] as const,
-
   dailyHistory: (
     customerId: string | null,
     query: CustomerDailyHistoryQuery = {},
@@ -97,7 +92,6 @@ export const customerQueryKeys = {
       query.month ?? null,
       query.year ?? null,
     ] as const,
-
   bills: (customerId: string | null, query: CustomerBillsQuery = {}) =>
     [
       "customers",
@@ -107,7 +101,6 @@ export const customerQueryKeys = {
       query.limit ?? 20,
       query.search?.trim() ?? "",
     ] as const,
-
   payments: (customerId: string | null, query: CustomerPaymentsQuery = {}) =>
     [
       "customers",
@@ -121,7 +114,6 @@ export const customerQueryKeys = {
       query.paymentMethod ?? null,
       query.search?.trim() ?? "",
     ] as const,
-
   auditLogs: (customerId: string | null, query: CustomerAuditLogsQuery = {}) =>
     [
       "customers",
@@ -129,18 +121,15 @@ export const customerQueryKeys = {
       customerId ?? "",
       query.page ?? 1,
       query.limit ?? 20,
+      query.types?.join(",") ?? "",
     ] as const,
-
   statement: (customerId: string | null) =>
     ["customers", "statement", customerId ?? ""] as const,
 };
 
 export async function getCustomerDailyHistory(
   customerId: string,
-  query: {
-    month?: number;
-    year?: number;
-  },
+  query: { month?: number; year?: number },
   signal?: AbortSignal,
 ): Promise<CustomerDailyHistoryResponse> {
   const response = await apiConnector<CustomerDailyHistoryResponse>(
@@ -148,13 +137,9 @@ export async function getCustomerDailyHistory(
     `/customers/${customerId}/daily-history`,
     undefined,
     undefined,
-    {
-      month: query.month,
-      year: query.year,
-    },
+    { month: query.month, year: query.year },
     signal,
   );
-
   return response.data;
 }
 
@@ -165,10 +150,8 @@ export const useCustomersQuery = (query: CustomerListQuery = {}) => {
     status: query.status,
     search: query.search?.trim() ?? "",
   };
-
   return useQuery({
     queryKey: customerQueryKeys.list(normalizedQuery),
-
     queryFn: async ({ signal }) => {
       const res = await apiConnector<CustomerListResponse>(
         "GET",
@@ -178,13 +161,8 @@ export const useCustomersQuery = (query: CustomerListQuery = {}) => {
         cleanParams(normalizedQuery),
         signal,
       );
-
-      return {
-        ...res.data,
-        items: res.data.items.map(mapCustomer),
-      };
+      return { ...res.data, items: res.data.items.map(mapCustomer) };
     },
-
     staleTime: QUERY_STALE_TIMES.customersList,
     gcTime: QUERY_GC_TIMES.standard,
     refetchInterval: QUERY_REFETCH_INTERVALS.customersList,
@@ -200,10 +178,7 @@ export const useCustomerByCardNumberQuery = (
   useQuery<CustomerResponse | null>({
     queryKey: customerQueryKeys.cardLookup(cardNumber),
     queryFn: async ({ signal }) => {
-      if (!cardNumber) {
-        return null;
-      }
-
+      if (!cardNumber) return null;
       try {
         const res = await apiConnector<CustomerResponse>(
           "GET",
@@ -213,19 +188,14 @@ export const useCustomerByCardNumberQuery = (
           { cardNumber },
           signal,
         );
-
         return res.data;
       } catch (error) {
-        if (axios.isAxiosError(error) && error.response?.status === 404) {
+        if (axios.isAxiosError(error) && error.response?.status === 404)
           return null;
-        }
-
         throw error;
       }
     },
     enabled: Boolean(enabled && cardNumber),
-    // Card lookup is an explicit user action and must not serve a stale
-    // customer after a card is reassigned.
     staleTime: 0,
     gcTime: QUERY_GC_TIMES.standard,
     ...STANDARD_QUERY_BEHAVIOR,
@@ -234,20 +204,17 @@ export const useCustomerByCardNumberQuery = (
 export const useCustomerStatsQuery = () =>
   useQuery<CustomerStatsResponse>({
     queryKey: customerQueryKeys.stats(),
-
-    queryFn: async ({ signal }) => {
-      const res = await apiConnector<CustomerStatsResponse>(
-        "GET",
-        "/customers/stats",
-        undefined,
-        undefined,
-        undefined,
-        signal,
-      );
-
-      return res.data;
-    },
-
+    queryFn: async ({ signal }) =>
+      (
+        await apiConnector<CustomerStatsResponse>(
+          "GET",
+          "/customers/stats",
+          undefined,
+          undefined,
+          undefined,
+          signal,
+        )
+      ).data,
     staleTime: QUERY_STALE_TIMES.customerStats,
     gcTime: QUERY_GC_TIMES.standard,
     refetchInterval: QUERY_REFETCH_INTERVALS.customerStats,
@@ -257,24 +224,19 @@ export const useCustomerStatsQuery = () =>
 export const useCustomerQuery = (customerId: string | null) =>
   useQuery<Customer>({
     queryKey: customerQueryKeys.detail(customerId),
-
     queryFn: async ({ signal }) => {
-      if (!customerId) {
-        throw new Error("Customer ID is required.");
-      }
-
-      const res = await apiConnector<CustomerResponse>(
-        "GET",
-        `/customers/${customerId}`,
-        undefined,
-        undefined,
-        undefined,
-        signal,
-      );
-
-      return res.data;
+      if (!customerId) throw new Error("Customer ID is required.");
+      return (
+        await apiConnector<CustomerResponse>(
+          "GET",
+          `/customers/${customerId}`,
+          undefined,
+          undefined,
+          undefined,
+          signal,
+        )
+      ).data;
     },
-
     enabled: Boolean(customerId),
     staleTime: QUERY_STALE_TIMES.customerDetail,
     gcTime: QUERY_GC_TIMES.standard,
@@ -287,24 +249,15 @@ export const useCustomerDailyHistoryQuery = (
 ) =>
   useQuery<CustomerDailyHistoryResponse>({
     queryKey: customerQueryKeys.dailyHistory(customerId, query),
-
     queryFn: ({ signal }) => {
-      if (!customerId) {
-        throw new Error("Customer ID is required.");
-      }
-
+      if (!customerId) throw new Error("Customer ID is required.");
       return getCustomerDailyHistory(
         customerId,
-        {
-          month: query.month,
-          year: query.year,
-        },
+        { month: query.month, year: query.year },
         signal,
       );
     },
-
     enabled: Boolean(customerId && query.month && query.year),
-
     staleTime: QUERY_STALE_TIMES.customerDailyHistory,
     gcTime: QUERY_GC_TIMES.standard,
     ...STANDARD_QUERY_BEHAVIOR,
@@ -317,28 +270,23 @@ export const useCustomerBillsQuery = (
 ) =>
   useQuery<CustomerBillListResponse>({
     queryKey: customerQueryKeys.bills(customerId, query),
-
     queryFn: async ({ signal }) => {
-      if (!customerId) {
-        throw new Error("Customer ID is required.");
-      }
-
-      const res = await apiConnector<CustomerBillListResponse>(
-        "GET",
-        `/customers/${customerId}/bills`,
-        undefined,
-        undefined,
-        cleanParams({
-          page: query.page,
-          limit: query.limit,
-          search: query.search?.trim(),
-        }),
-        signal,
-      );
-
-      return res.data;
+      if (!customerId) throw new Error("Customer ID is required.");
+      return (
+        await apiConnector<CustomerBillListResponse>(
+          "GET",
+          `/customers/${customerId}/bills`,
+          undefined,
+          undefined,
+          cleanParams({
+            page: query.page,
+            limit: query.limit,
+            search: query.search?.trim(),
+          }),
+          signal,
+        )
+      ).data;
     },
-
     enabled: Boolean(customerId),
     staleTime: QUERY_STALE_TIMES.customerBills,
     gcTime: QUERY_GC_TIMES.standard,
@@ -352,32 +300,27 @@ export const useCustomerPaymentsQuery = (
 ) =>
   useQuery<CustomerPaymentListResponse>({
     queryKey: customerQueryKeys.payments(customerId, query),
-
     queryFn: async ({ signal }) => {
-      if (!customerId) {
-        throw new Error("Customer ID is required.");
-      }
-
-      const res = await apiConnector<CustomerPaymentListResponse>(
-        "GET",
-        `/customers/${customerId}/payments`,
-        undefined,
-        undefined,
-        cleanParams({
-          page: query.page,
-          limit: query.limit,
-          billId: query.billId,
-          billMonth: query.billMonth,
-          billYear: query.billYear,
-          paymentMethod: query.paymentMethod,
-          search: query.search?.trim(),
-        }),
-        signal,
-      );
-
-      return res.data;
+      if (!customerId) throw new Error("Customer ID is required.");
+      return (
+        await apiConnector<CustomerPaymentListResponse>(
+          "GET",
+          `/customers/${customerId}/payments`,
+          undefined,
+          undefined,
+          cleanParams({
+            page: query.page,
+            limit: query.limit,
+            billId: query.billId,
+            billMonth: query.billMonth,
+            billYear: query.billYear,
+            paymentMethod: query.paymentMethod,
+            search: query.search?.trim(),
+          }),
+          signal,
+        )
+      ).data;
     },
-
     enabled: Boolean(customerId),
     staleTime: QUERY_STALE_TIMES.customerPayments,
     gcTime: QUERY_GC_TIMES.standard,
@@ -391,27 +334,23 @@ export const useCustomerAuditLogsQuery = (
 ) =>
   useQuery<CustomerAuditLogResponse>({
     queryKey: customerQueryKeys.auditLogs(customerId, query),
-
     queryFn: async ({ signal }) => {
-      if (!customerId) {
-        throw new Error("Customer ID is required.");
-      }
-
-      const res = await apiConnector<CustomerAuditLogResponse>(
-        "GET",
-        `/customers/${customerId}/audit-logs`,
-        undefined,
-        undefined,
-        cleanParams({
-          page: query.page,
-          limit: query.limit,
-        }),
-        signal,
-      );
-
-      return res.data;
+      if (!customerId) throw new Error("Customer ID is required.");
+      return (
+        await apiConnector<CustomerAuditLogResponse>(
+          "GET",
+          `/customers/${customerId}/audit-logs`,
+          undefined,
+          undefined,
+          cleanParams({
+            page: query.page,
+            limit: query.limit,
+            types: query.types?.join(","),
+          }),
+          signal,
+        )
+      ).data;
     },
-
     enabled: Boolean(customerId),
     staleTime: QUERY_STALE_TIMES.customerAuditLogs,
     gcTime: QUERY_GC_TIMES.long,
@@ -422,24 +361,19 @@ export const useCustomerAuditLogsQuery = (
 export const useCustomerStatementQuery = (customerId: string | null) =>
   useQuery<CustomerStatement>({
     queryKey: customerQueryKeys.statement(customerId),
-
     queryFn: async ({ signal }) => {
-      if (!customerId) {
-        throw new Error("Customer ID is required.");
-      }
-
-      const response = await apiConnector<CustomerStatement>(
-        "GET",
-        `/customers/${customerId}/statement`,
-        undefined,
-        undefined,
-        undefined,
-        signal,
-      );
-
-      return response.data;
+      if (!customerId) throw new Error("Customer ID is required.");
+      return (
+        await apiConnector<CustomerStatement>(
+          "GET",
+          `/customers/${customerId}/statement`,
+          undefined,
+          undefined,
+          undefined,
+          signal,
+        )
+      ).data;
     },
-
     enabled: Boolean(customerId),
     staleTime: QUERY_STALE_TIMES.customerStatement,
     gcTime: QUERY_GC_TIMES.standard,
@@ -448,7 +382,6 @@ export const useCustomerStatementQuery = (customerId: string | null) =>
 
 export const useArchiveCustomerMutation = () => {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async ({
       id,
@@ -456,14 +389,12 @@ export const useArchiveCustomerMutation = () => {
     }: {
       id: string;
       refundDeposit?: boolean;
-    }) => {
-      const res = await apiConnector("PATCH", `/customers/${id}/archive`, {
-        refundDeposit,
-      });
-
-      return res.data;
-    },
-
+    }) =>
+      (
+        await apiConnector("PATCH", `/customers/${id}/archive`, {
+          refundDeposit,
+        })
+      ).data,
     onSuccess: async (_, { id }) => {
       await invalidateCustomerStatusChanged(queryClient, id);
     },
@@ -472,14 +403,9 @@ export const useArchiveCustomerMutation = () => {
 
 export const useRestoreCustomerMutation = () => {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiConnector("PATCH", `/customers/${id}/restore`);
-
-      return res.data;
-    },
-
+    mutationFn: async (id: string) =>
+      (await apiConnector("PATCH", `/customers/${id}/restore`)).data,
     onSuccess: async (_, id) => {
       await invalidateCustomerStatusChanged(queryClient, id);
     },
@@ -488,14 +414,9 @@ export const useRestoreCustomerMutation = () => {
 
 export const useCreateCustomerMutation = () => {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: async (payload: CreateCustomerRequest) => {
-      const res = await apiConnector("POST", "/customers", payload);
-
-      return res.data;
-    },
-
+    mutationFn: async (payload: CreateCustomerRequest) =>
+      (await apiConnector("POST", "/customers", payload)).data,
     onSuccess: async () => {
       await invalidateCustomerCreated(queryClient);
     },
@@ -504,21 +425,9 @@ export const useCreateCustomerMutation = () => {
 
 export const useUpdateCustomerMutation = () => {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: async (args: {
-      id: string;
-      payload: UpdateCustomerRequest;
-    }) => {
-      const res = await apiConnector(
-        "PATCH",
-        `/customers/${args.id}`,
-        args.payload,
-      );
-
-      return res.data;
-    },
-
+    mutationFn: async (args: { id: string; payload: UpdateCustomerRequest }) =>
+      (await apiConnector("PATCH", `/customers/${args.id}`, args.payload)).data,
     onSuccess: async (_, variables) => {
       await invalidateCustomerUpdated(queryClient, variables.id);
     },
@@ -539,7 +448,6 @@ export type CustomerStatement = {
 
 function useDepositMutation(path: "top-up" | "refund") {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async ({
       id,
@@ -556,7 +464,6 @@ function useDepositMutation(path: "top-up" | "refund") {
           notes,
         })
       ).data,
-
     onSuccess: async (_, { id }) => {
       await invalidateCustomerDepositChanged(queryClient, id);
     },
@@ -564,5 +471,4 @@ function useDepositMutation(path: "top-up" | "refund") {
 }
 
 export const useTopUpDepositMutation = () => useDepositMutation("top-up");
-
 export const useRefundDepositMutation = () => useDepositMutation("refund");

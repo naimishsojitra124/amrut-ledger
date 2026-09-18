@@ -79,9 +79,36 @@ export const updateCustomerSchema = z
     { message: "Primary milk type cannot also appear in other milk types" },
   );
 
+const auditLogTypeSchema = z.enum([
+  "customer_created",
+  "customer_updated",
+  "customer_closed",
+  "customer_reopened",
+  "card_assigned",
+  "card_unassigned",
+  "milk_type_changed",
+  "deposit_updated",
+  "entry_added",
+  "entry_updated",
+  "entry_deleted",
+  "bill_generated",
+  "payment_added",
+  "note_added",
+]);
+
 export const customerPageQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
+  types: z.preprocess(
+    (value) =>
+      typeof value === "string"
+        ? value
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : value,
+    z.array(auditLogTypeSchema).optional(),
+  ),
 });
 
 export const customerMonthQuerySchema = z.object({
