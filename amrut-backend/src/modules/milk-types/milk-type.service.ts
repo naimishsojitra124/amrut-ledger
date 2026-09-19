@@ -139,7 +139,7 @@ export async function getActiveMilkTypes(app: FastifyInstance): Promise<{
 
   const items = await prisma.milkType.findMany({
     where: { status: "active" },
-    orderBy: [{ createdAt: "asc" }],
+    orderBy: [{ createdAt: "desc" }],
   });
 
   return {

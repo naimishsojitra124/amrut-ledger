@@ -820,14 +820,6 @@ export async function createCustomer(
 ): Promise<CustomerResponse> {
   const prisma = getPrisma(app);
 
-  const duplicateMobile = await prisma.customer.findUnique({
-    where: { mobileNumber: input.mobileNumber },
-  });
-
-  if (duplicateMobile) {
-    throw createHttpError(409, "Mobile number already exists");
-  }
-
   if (input.mobileNumber && !/^\d{10}$/.test(input.mobileNumber)) {
     throw createHttpError(400, "Mobile number must be exactly 10 digits");
   }
@@ -962,16 +954,6 @@ export async function updateCustomer(
       400,
       "Use a deposit top-up or refund transaction instead of editing the balance",
     );
-  }
-
-  if (nextMobileNumber !== existing.mobileNumber) {
-    const duplicate = await prisma.customer.findUnique({
-      where: { mobileNumber: nextMobileNumber },
-    });
-
-    if (duplicate && duplicate.id !== id) {
-      throw createHttpError(409, "Mobile number already exists");
-    }
   }
 
   let nextMilkTypes = existing.milkTypes as {
