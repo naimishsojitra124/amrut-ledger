@@ -9,6 +9,8 @@ import {
   createCustomerSchema,
   customerMonthQuerySchema,
   depositTransactionSchema,
+  customerBillsQuerySchema,
+  customerPaymentsQuerySchema,
 } from "./customer.schema";
 import {
   archiveCustomer,
@@ -139,7 +141,7 @@ export async function getCustomerCardHistoryHandler(request: FastifyRequest, rep
 
 export async function getCustomerBillsHandler(request: FastifyRequest, reply: FastifyReply) {
   const params = customerIdParamSchema.parse(request.params);
-  const query = customerListQuerySchema.parse(request.query);
+  const query = customerBillsQuerySchema.parse(request.query);
   const result = await getCustomerBills(request.server, params.id, query);
 
   return reply.send(result);
@@ -147,7 +149,7 @@ export async function getCustomerBillsHandler(request: FastifyRequest, reply: Fa
 
 export async function getCustomerPaymentsHandler(request: FastifyRequest, reply: FastifyReply) {
   const params = customerIdParamSchema.parse(request.params);
-  const query = customerListQuerySchema.parse(request.query);
+  const query = customerPaymentsQuerySchema.parse(request.query);
   const result = await getCustomerPayments(request.server, params.id, query);
 
   return reply.send(result);

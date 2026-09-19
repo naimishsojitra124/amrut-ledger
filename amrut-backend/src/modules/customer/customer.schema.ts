@@ -1,5 +1,19 @@
 import { z } from "zod";
 
+/**
+ * Mobile numbers are optional throughout. An empty string is normalised to
+ * `undefined` so that a cleared field and an omitted field behave identically,
+ * and only a genuinely present value is checked against the 10-digit rule.
+ */
+const optionalMobileNumberSchema = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z
+    .string()
+    .trim()
+    .regex(/^\d{10}$/, "Mobile number must be a 10 digit number")
+    .optional(),
+);
+
 export const customerIdParamSchema = z.object({
   id: z.string().min(1, "Customer id is required"),
 });
@@ -27,7 +41,7 @@ const customerCardSchema = z.object({
 export const createCustomerSchema = z
   .object({
     fullName: z.string().trim().min(1, "Name is required").max(120),
-    mobileNumber: z.string().trim().optional(),
+    mobileNumber: optionalMobileNumberSchema,
     address: z.string().trim().max(250).optional(),
     depositAmount: z.coerce.number().int().min(0),
     notes: z.string().trim().max(1000).optional(),
@@ -47,17 +61,14 @@ export const createCustomerSchema = z
 
 export const updateCustomerSchema = z
   .object({
-    fullName: z.string().trim().min(1).max(120),
-    mobileNumber: z
-      .string()
-      .trim()
-      .regex(/^\d{10}$/, "Mobile number must be a 10 digit number"),
-    address: z.string().trim().min(1).max(250),
+    fullName: z.string().trim().min(1).max(120).optional(),
+    mobileNumber: optionalMobileNumberSchema,
+    address: z.string().trim().max(250).optional(),
     depositAmount: z.coerce.number().int().min(0).optional(),
     notes: z.string().trim().max(1000).optional(),
   })
   .merge(customerMilkTypeSchema.partial())
-  .merge(customerCardSchema)
+  .merge(customerCardSchema.partial())
   .refine(
     (value) => {
       const all = [
@@ -90,6 +101,7 @@ const auditLogTypeSchema = z.enum([
   "entry_deleted",
   "bill_generated",
   "payment_added",
+  "payment_reversed",
   "note_added",
 ]);
 
@@ -118,6 +130,25 @@ export const archiveCustomerSchema = z.object({
 });
 
 export const depositTransactionSchema = z.object({
-  amount: z.coerce.number().positive().max(1_000_000),
+  amount: z.coerce.number().int().positive().max(1_000_000),
   notes: z.string().trim().max(500).optional(),
+});
+
+export const customerBillsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  month: z.coerce.number().int().min(1).max(12).optional(),
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
+  status: z.enum(["paid", "partial", "unpaid", "carried_forward"]).optional(),
+  search: z.string().trim().min(1).optional(),
+});
+
+export const customerPaymentsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  billId: z.string().trim().min(1).optional(),
+  billMonth: z.coerce.number().int().min(1).max(12).optional(),
+  billYear: z.coerce.number().int().min(2000).max(2100).optional(),
+  paymentMethod: z.enum(["cash", "upi"]).optional(),
+  search: z.string().trim().min(1).optional(),
 });

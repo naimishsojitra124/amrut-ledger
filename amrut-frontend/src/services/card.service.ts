@@ -47,9 +47,20 @@ export interface CardSummaryResponse {
   availableCards: number;
 }
 
+export interface CardListPageInfo {
+  page: number;
+  limit: number;
+  totalItems: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
 export interface CardListResponse {
   items: CardResponse[];
+  /** Counted across all cards, so the tiles stay stable while filtering. */
   summary: CardSummaryResponse;
+  pageInfo: CardListPageInfo;
 }
 
 export interface CardHistoryResponse {

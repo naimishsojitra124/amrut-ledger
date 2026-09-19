@@ -35,7 +35,7 @@ export interface CreateProductSuggestionRequest {
 }
 
 export interface UpdateProductSuggestionRequest {
-  name: string;
+  name?: string | undefined;
   displayOrder?: number | undefined;
 }
 

@@ -93,20 +93,6 @@ export default function QuickEntry() {
     offlineQuickEntryCache.saveCustomers(nextCustomers);
   }, [customerLookupQuery.data]);
 
-  useEffect(() => {
-    if (customerLookupQuery.isError && normalizedSearch) {
-      toast.error(
-        customerLookupQuery.error instanceof Error
-          ? customerLookupQuery.error.message
-          : "Failed to search customer.",
-      );
-    }
-  }, [
-    customerLookupQuery.error,
-    customerLookupQuery.isError,
-    normalizedSearch,
-  ]);
-
   const ledgerQuery = useCustomerDailyLedgerQuery(
     selectedCustomer?.id ?? null,
     selectedDate,
@@ -169,10 +155,7 @@ export default function QuickEntry() {
         return;
       }
 
-      toast.error(
-        error instanceof Error ? error.message : "Failed to save entry.",
-      );
-
+      // The global error handler has already told the user what went wrong.
       throw error;
     }
   }

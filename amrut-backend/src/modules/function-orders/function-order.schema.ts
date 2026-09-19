@@ -32,7 +32,8 @@ export const functionOrderItemSchema = z
 
     unit: z.string().trim().min(1).max(20).default("kg"),
 
-    unitPrice: z.coerce.number().min(0),
+    // Whole rupees; quantities stay fractional because goods are sold by kg.
+    unitPrice: z.coerce.number().int("Unit price must be a whole number of rupees").min(0),
 
     returnedQuantity: z.coerce.number().min(0).default(0),
 

@@ -33,9 +33,9 @@ export interface CreateMilkTypeRequest {
 }
 
 export interface UpdateMilkTypeRequest {
-  name: string;
-  shortCode: string;
-  rate: number;
+  name?: string | undefined;
+  shortCode?: string | undefined;
+  rate?: number | undefined;
 }
 
 export interface MilkTypeListQuery {

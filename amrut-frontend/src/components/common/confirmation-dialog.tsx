@@ -29,12 +29,9 @@ export default function ConfirmationDialog() {
         toast.success(confirmation.successMessage);
       }
       closeModal();
-    } catch (error) {
-      toast.error(
-        error instanceof Error && error.message
-          ? error.message
-          : "The action could not be completed.",
-      );
+    } catch {
+      // API failures are announced once by the global error handler; the
+      // dialog only needs to stay open so the user can retry.
     } finally {
       setIsPending(false);
     }

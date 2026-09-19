@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "../../../generated/prisma/client";
+import { AUDIT_FIELD, change, describeLedgerEntry } from "../audit/audit.util";
 import type {
   AddDailyLedgerEntryRequest,
   CreateDailyLedgerRequest,
@@ -139,19 +140,17 @@ function fallbackUserSummary(id: string): DailyLedgerUserSummaryResponse {
   };
 }
 
+/**
+ * Amounts are whole rupees. Litres stay fractional (2.5 L is normal), so the
+ * rounding happens exactly once, where litres turn into money.
+ */
 function calculateEntryTotals(entry: {
-  milkEntries: Array<{ litres: number; rate: number }>;
-  productEntries: Array<{ quantity: number; unitPrice: number }>;
+  milkEntries: Array<{ amount: number }>;
+  productEntries: Array<{ amount: number }>;
 }) {
-  const milkAmount = entry.milkEntries.reduce(
-    (sum, item) => sum + item.litres * item.rate,
-    0,
-  );
+  const milkAmount = entry.milkEntries.reduce((sum, item) => sum + item.amount, 0);
 
-  const productAmount = entry.productEntries.reduce(
-    (sum, item) => sum + item.quantity * item.unitPrice,
-    0,
-  );
+  const productAmount = entry.productEntries.reduce((sum, item) => sum + item.amount, 0);
 
   return {
     totalMilkAmount: milkAmount,
@@ -454,7 +453,7 @@ async function resolveMilkEntries(
       );
     }
 
-    const amount = entry.litres * milkType.rate;
+    const amount = Math.round(entry.litres * milkType.rate);
 
     return {
       milkTypeId: milkType.id,
@@ -532,23 +531,26 @@ async function resolveProductEntries(
     itemName: entry.itemName,
     quantity: entry.quantity,
     unitPrice: entry.unitPrice,
-    amount: entry.quantity * entry.unitPrice,
+    amount: Math.round(entry.quantity * entry.unitPrice),
   }));
 }
 
+/**
+ * Entries are logged as a readable sentence rather than as `JSON.stringify` of
+ * the stored document, which previously exposed ObjectIds and internal field
+ * names to whoever opened the customer's history tab.
+ */
 async function createAuditLog(
   prisma: PrismaClient,
   input: {
     customerId: string;
     performedById: string;
-    type:
-      | "entry_added"
-      | "entry_updated"
-      | "entry_deleted";
+    type: "entry_added" | "entry_updated" | "entry_deleted";
     title: string;
     ledgerId: string;
-    oldValue: string;
-    newValue: string;
+    ledgerDate: string;
+    oldEntry?: unknown;
+    newEntry?: unknown;
   },
 ) {
   await prisma.auditLog.create({
@@ -557,11 +559,12 @@ async function createAuditLog(
       type: input.type,
       title: input.title,
       details: [
-        {
-          field: "entry",
-          oldValue: input.oldValue,
-          newValue: input.newValue,
-        },
+        change(
+          AUDIT_FIELD.entry,
+          describeLedgerEntry(input.oldEntry as never) || "None",
+          describeLedgerEntry(input.newEntry as never) || "None",
+        ),
+        change("Ledger date", "", formatDisplayDate(input.ledgerDate)),
       ],
       performedById: input.performedById,
       relatedEntityType: "ledger",
@@ -570,11 +573,22 @@ async function createAuditLog(
   });
 }
 
-async function loadCustomerLedgers(
-  prisma: PrismaClient,
-  customerId: string,
-  query: DailyLedgerListQuery,
-) {
+const DISPLAY_DATE_FORMATTER = new Intl.DateTimeFormat("en-IN", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+/** "05 Mar 2026" from a YYYY-MM-DD business date. */
+function formatDisplayDate(dateString: string) {
+  const parsed = new Date(`${dateString}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime())
+    ? dateString
+    : DISPLAY_DATE_FORMATTER.format(parsed);
+}
+
+function buildLedgerWhere(customerId: string, query: DailyLedgerListQuery) {
   const where: {
     customerId: string;
     ledgerDate?: {
@@ -615,34 +629,15 @@ async function loadCustomerLedgers(
     };
   }
 
-  return prisma.dailyLedger.findMany({
-    where,
-    orderBy: {
-      ledgerDate: "desc",
-    },
-    select: LEDGER_SELECT,
-  });
+  return where;
 }
 
-function paginate<T>(
-  items: T[],
-  page: number,
-  limit: number,
-) {
-  const totalItems = items.length;
-  const totalPages = Math.max(
-    1,
-    Math.ceil(totalItems / limit),
-  );
-
-  const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * limit;
+function buildLedgerPageInfo(totalItems: number, page: number, limit: number) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
+  const safePage = Math.min(Math.max(1, page), totalPages);
 
   return {
-    paginatedItems: items.slice(
-      start,
-      start + limit,
-    ),
+    skip: (safePage - 1) * limit,
     pageInfo: {
       page: safePage,
       limit,
@@ -825,48 +820,33 @@ export async function getCustomerLedgers(
 
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
-
-  const all = await loadCustomerLedgers(
-    prisma,
-    customerId,
-    query,
-  );
+  const where = buildLedgerWhere(customerId, query);
 
   /**
-   * Collect all creator IDs once instead of querying once per
-   * ledger entry.
+   * Only the requested page is loaded. Previously every ledger the customer
+   * had ever had was pulled into memory just to slice one page out of it.
    */
-  const userIds = all.flatMap((ledger: any) => [
+  const totalItems = await prisma.dailyLedger.count({ where });
+  const { skip, pageInfo } = buildLedgerPageInfo(totalItems, page, limit);
+
+  const ledgers = await prisma.dailyLedger.findMany({
+    where,
+    orderBy: { ledgerDate: "desc" },
+    skip,
+    take: limit,
+    select: LEDGER_SELECT,
+  });
+
+  // One user lookup for the whole page, not one per entry.
+  const userIds = ledgers.flatMap((ledger: any) => [
     ledger.updatedBy.id,
-    ...(ledger.entries ?? []).map(
-      (entry: any) => entry.createdById,
-    ),
+    ...(ledger.entries ?? []).map((entry: any) => entry.createdById),
   ]);
 
-  const userSummaryMap =
-    await loadUserSummaryMap(
-      prisma,
-      userIds,
-    );
-
-  const items = all.map((ledger) =>
-    normalizeLedgerListItem(
-      ledger,
-      userSummaryMap,
-    ),
-  );
-
-  const {
-    paginatedItems,
-    pageInfo,
-  } = paginate(
-    items,
-    page,
-    limit,
-  );
+  const userSummaryMap = await loadUserSummaryMap(prisma, userIds);
 
   return {
-    items: paginatedItems,
+    items: ledgers.map((ledger: unknown) => normalizeLedgerListItem(ledger, userSummaryMap)),
     pageInfo,
   };
 }
@@ -878,23 +858,24 @@ export async function getCustomerLedgerSummary(
 ): Promise<DailyLedgerSummaryResponse> {
   const prisma = getPrisma(app);
 
-  const ledgers = await loadCustomerLedgers(
-    prisma,
-    customerId,
-    query,
-  );
+  // The summary only needs the entry arrays, so it skips the customer, card
+  // and user joins that the list query performs.
+  const ledgers: Array<{ entries: unknown[] }> = await prisma.dailyLedger.findMany({
+    where: buildLedgerWhere(customerId, query),
+    select: { entries: true },
+  });
 
   return {
     totalLedgers: ledgers.length,
 
     totalEntries: ledgers.reduce(
-      (sum, ledger) =>
+      (sum: number, ledger: { entries: unknown[] }) =>
         sum + (ledger.entries?.length ?? 0),
       0,
     ),
 
     totalMilkLitres: ledgers.reduce(
-      (sum, ledger) =>
+      (sum: number, ledger: { entries: unknown[] }) =>
         sum +
         (ledger.entries ?? []).reduce(
           (entrySum: number, entry: any) =>
@@ -911,7 +892,7 @@ export async function getCustomerLedgerSummary(
     ),
 
     totalMilkAmount: ledgers.reduce(
-      (sum, ledger) =>
+      (sum: number, ledger: { entries: unknown[] }) =>
         sum +
         (ledger.entries ?? []).reduce(
           (entrySum: number, entry: any) =>
@@ -928,7 +909,7 @@ export async function getCustomerLedgerSummary(
     ),
 
     totalProductAmount: ledgers.reduce(
-      (sum, ledger) =>
+      (sum: number, ledger: { entries: unknown[] }) =>
         sum +
         (ledger.entries ?? []).reduce(
           (entrySum: number, entry: any) =>
@@ -945,7 +926,7 @@ export async function getCustomerLedgerSummary(
     ),
 
     grandTotal: ledgers.reduce(
-      (sum, ledger) =>
+      (sum: number, ledger: { entries: unknown[] }) =>
         sum +
         (ledger.entries ?? []).reduce(
           (entrySum: number, entry: any) =>
@@ -1091,21 +1072,15 @@ export async function addLedgerEntry(
     );
 
   if (result.added) {
-    await createAuditLog(
-      prisma,
-      {
-        customerId,
-        performedById,
-        type: "entry_added",
-        title:
-          "Daily ledger entry added",
-        ledgerId:
-          result.ledger.id,
-        oldValue: "-",
-        newValue:
-          JSON.stringify(entry),
-      },
-    );
+    await createAuditLog(prisma, {
+      customerId,
+      performedById,
+      type: "entry_added",
+      title: `Ledger entry added for ${formatDisplayDate(date)}`,
+      ledgerId: result.ledger.id,
+      ledgerDate: date,
+      newEntry: entry,
+    });
   }
 
   const userIds = [
@@ -1257,22 +1232,16 @@ export async function updateLedgerEntry(
       select: LEDGER_SELECT,
     });
 
-  await createAuditLog(
-    prisma,
-    {
-      customerId,
-      performedById,
-      type: "entry_updated",
-      title:
-        "Daily ledger entry updated",
-      ledgerId:
-        updatedLedger.id,
-      oldValue:
-        JSON.stringify(oldEntry),
-      newValue:
-        JSON.stringify(nextEntry),
-    },
-  );
+  await createAuditLog(prisma, {
+    customerId,
+    performedById,
+    type: "entry_updated",
+    title: `Ledger entry updated for ${formatDisplayDate(date)}`,
+    ledgerId: updatedLedger.id,
+    ledgerDate: date,
+    oldEntry,
+    newEntry: nextEntry,
+  });
 
   const userIds = [
     updatedLedger.updatedBy.id,
@@ -1343,21 +1312,15 @@ export async function deleteLedgerEntry(
       select: LEDGER_SELECT,
     });
 
-  await createAuditLog(
-    prisma,
-    {
-      customerId,
-      performedById,
-      type: "entry_deleted",
-      title:
-        "Daily ledger entry deleted",
-      ledgerId:
-        updatedLedger.id,
-      oldValue:
-        JSON.stringify(oldEntry),
-      newValue: "-",
-    },
-  );
+  await createAuditLog(prisma, {
+    customerId,
+    performedById,
+    type: "entry_deleted",
+    title: `Ledger entry deleted for ${formatDisplayDate(date)}`,
+    ledgerId: updatedLedger.id,
+    ledgerDate: date,
+    oldEntry,
+  });
 
   const userIds = [
     updatedLedger.updatedBy.id,

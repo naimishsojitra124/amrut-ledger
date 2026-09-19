@@ -1,5 +1,11 @@
 import axios from "axios";
-import type { Method, AxiosRequestHeaders, AxiosResponse } from "axios";
+import type {
+  AxiosError,
+  AxiosRequestHeaders,
+  AxiosResponse,
+  InternalAxiosRequestConfig,
+  Method,
+} from "axios";
 
 const baseURL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000";
 const TOKEN_KEY = "authToken";
@@ -58,7 +64,7 @@ export const tokenStorage = {
     const token = this.get();
     if (!token) return true;
     try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
+      const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
       // exp is in seconds; give a 30-second buffer
       return payload.exp != null && payload.exp * 1000 < Date.now() + 30_000;
     } catch {
@@ -66,6 +72,61 @@ export const tokenStorage = {
     }
   },
 };
+
+// ─── Error messages ───────────────────────────────────────────────────────────
+
+/**
+ * One place that turns any failure into a sentence worth showing a user.
+ *
+ * Every layer above (React Query, mutation handlers, the offline queues) reads
+ * messages through this, so an error can never reach the screen as "[object
+ * Object]", as an empty string, or as nothing at all.
+ */
+export function getApiErrorMessage(
+  error: unknown,
+  fallback = "Something went wrong. Please try again.",
+): string {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as
+      | { message?: unknown; error?: unknown }
+      | undefined;
+
+    const serverMessage =
+      typeof data?.message === "string" && data.message.trim()
+        ? data.message.trim()
+        : typeof data?.error === "string" && data.error.trim()
+          ? data.error.trim()
+          : null;
+
+    if (serverMessage) return serverMessage;
+
+    if (error.code === "ECONNABORTED") {
+      return "The server took too long to respond. Please try again.";
+    }
+
+    // No response at all: offline, DNS failure, CORS, server down.
+    if (!error.response) {
+      return navigator.onLine
+        ? "Cannot reach the server. Please try again in a moment."
+        : "You are offline. Changes will sync once you reconnect.";
+    }
+
+    const status = error.response.status;
+
+    if (status === 401) return "Your session has expired. Please sign in again.";
+    if (status === 403) return "You do not have permission to do that.";
+    if (status === 404) return "That record could not be found.";
+    if (status === 429) return "Too many requests. Please wait a moment and try again.";
+    if (status >= 500) return "The server ran into a problem. Please try again.";
+
+    return error.message || fallback;
+  }
+
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error.trim();
+
+  return fallback;
+}
 
 // ─── Axios instance ───────────────────────────────────────────────────────────
 
@@ -92,32 +153,100 @@ axiosInstance.interceptors.request.use(
   (error) => Promise.reject(error),
 );
 
-// Response interceptor — handle 401
+// ─── Silent refresh ───────────────────────────────────────────────────────────
+
+/**
+ * Access tokens live for 15 minutes. Without this, the first request made
+ * after that mark returned 401 and logged the user out mid-task — several
+ * times a shift.
+ *
+ * On a 401 we exchange the refresh cookie for a new access token once, then
+ * replay the request. Concurrent 401s share the single in-flight refresh
+ * instead of each firing their own, and each request is retried at most once
+ * so a genuinely dead session still ends in a clean logout.
+ */
+type RetriableConfig = InternalAxiosRequestConfig & { _retriedAfterRefresh?: boolean };
+
+let refreshPromise: Promise<string> | null = null;
+
+function isAuthEndpoint(url: string): boolean {
+  return (
+    url.includes("/auth/login") ||
+    url.includes("/auth/refresh") ||
+    url.includes("/auth/logout")
+  );
+}
+
+async function refreshAccessToken(): Promise<string> {
+  // A bare axios call: the shared instance would recurse through this very
+  // interceptor if the refresh itself came back 401.
+  const response = await axios.post<{ accessToken: string }>(
+    "/auth/refresh",
+    undefined,
+    {
+      baseURL,
+      withCredentials: true,
+      timeout: 20_000,
+      headers: { "X-Device-Id": getDeviceId() },
+    },
+  );
+
+  const nextToken = response.data?.accessToken;
+  if (!nextToken) throw new Error("Refresh did not return an access token");
+
+  tokenStorage.set(nextToken);
+  window.dispatchEvent(
+    new CustomEvent("auth:token-refreshed", { detail: { accessToken: nextToken } }),
+  );
+
+  return nextToken;
+}
+
+/** Shared so that ten simultaneous 401s trigger exactly one refresh. */
+export function refreshSession(): Promise<string> {
+  refreshPromise ??= refreshAccessToken().finally(() => {
+    refreshPromise = null;
+  });
+
+  return refreshPromise;
+}
+
+// Response interceptor — refresh once on 401, then log out
 axiosInstance.interceptors.response.use(
   (response) => {
     logRequestTiming(response.config, response.status);
     return response;
   },
-  (error) => {
+  async (error: AxiosError) => {
     const status = error.response?.status;
-    const config = error.config;
+    const config = error.config as RetriableConfig | undefined;
     const url = config?.url ?? "";
 
     if (config) {
       logRequestTiming(config, status);
     }
 
-    const isAuthEndpoint =
-      url.includes("/auth/login") ||
-      url.includes("/auth/refresh") ||
-      url.includes("/auth/logout");
+    if (status !== 401 || !config || isAuthEndpoint(url) || config._retriedAfterRefresh) {
+      if (status === 401 && !isAuthEndpoint(url)) {
+        tokenStorage.clear();
+        window.dispatchEvent(new CustomEvent("auth:logout"));
+      }
 
-    if (status === 401 && !isAuthEndpoint) {
-      tokenStorage.clear();
-      window.dispatchEvent(new CustomEvent("auth:logout"));
+      return Promise.reject(error);
     }
 
-    return Promise.reject(error);
+    config._retriedAfterRefresh = true;
+
+    try {
+      const nextToken = await refreshSession();
+      config.headers.set("Authorization", `Bearer ${nextToken}`);
+      return await axiosInstance.request(config);
+    } catch {
+      // The refresh cookie is gone or rejected — this session is genuinely over.
+      tokenStorage.clear();
+      window.dispatchEvent(new CustomEvent("auth:logout"));
+      return Promise.reject(error);
+    }
   },
 );
 

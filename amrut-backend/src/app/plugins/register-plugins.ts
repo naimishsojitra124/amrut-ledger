@@ -22,7 +22,30 @@ export async function registerAppPlugins(app: FastifyInstance) {
     },
     crossOriginResourcePolicy: { policy: "same-site" },
   });
-  await app.register(rateLimit, { global: true, max: 180, timeWindow: "1 minute", ban: 2 });
+  /**
+   * The app runs behind a proxy (Vercel / Render / nginx), so `request.ip` is
+   * the proxy's address unless `trustProxy` is set on the server — see app.ts.
+   * With that in place each device gets its own bucket again; previously the
+   * whole shop shared one, and `ban` could lock every user out at once.
+   *
+   * The limit is deliberately generous for normal use. Authentication gets a
+   * far tighter, dedicated limiter in auth.route.ts.
+   */
+  await app.register(rateLimit, {
+    global: true,
+    max: 300,
+    timeWindow: "1 minute",
+    keyGenerator: (request) => {
+      // Authenticated users are limited per account, not per shared IP.
+      const user = request.user as { sub?: string } | undefined;
+      return user?.sub ?? request.ip;
+    },
+    errorResponseBuilder: (_request, context) => ({
+      statusCode: 429,
+      error: "Too Many Requests",
+      message: `Too many requests. Please retry in ${context.after}.`,
+    }),
+  });
   await app.register(cors, {
     origin: env.corsOrigins,
     credentials: true,

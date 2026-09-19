@@ -10,17 +10,24 @@ export const milkTypeListQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
 });
 
+// Rates are whole rupees per litre, matching how money is stored everywhere.
+const rateSchema = z.coerce
+  .number()
+  .int("Rate must be a whole number of rupees")
+  .positive("Rate must be greater than 0")
+  .max(100_000);
+
 export const createMilkTypeSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(100),
   shortCode: z.string().trim().min(1, "Short code is required").max(20),
-  rate: z.number().positive("Rate must be greater than 0"),
+  rate: rateSchema,
 });
 
 export const updateMilkTypeSchema = z
   .object({
-    name: z.string().trim().min(1).max(100),
-    shortCode: z.string().trim().min(1).max(20),
-    rate: z.number().positive(),
+    name: z.string().trim().min(1).max(100).optional(),
+    shortCode: z.string().trim().min(1).max(20).optional(),
+    rate: rateSchema.optional(),
   })
   .refine(
     (value) =>

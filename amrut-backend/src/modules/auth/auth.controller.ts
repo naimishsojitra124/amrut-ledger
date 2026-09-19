@@ -11,12 +11,6 @@ import {
   revokeSession,
 } from "./auth.service";
 
-function extractBearerToken(authorizationHeader?: string) {
-  if (!authorizationHeader) return undefined;
-  const match = /^Bearer\s+(.+)$/i.exec(authorizationHeader.trim());
-  return match?.[1];
-}
-
 export async function loginHandler(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -66,15 +60,27 @@ export async function refreshHandler(
   });
 }
 
-export async function logoutHandler(
-  request: FastifyRequest,
-  reply: FastifyReply,
-) {
+/**
+ * Logout is idempotent: it clears the cookie and returns 200 whether or not a
+ * live session could be identified, so the client is never left believing it
+ * signed out while the server-side session is still valid.
+ */
+export async function logoutHandler(request: FastifyRequest, reply: FastifyReply) {
   const cookies = request.cookies as Record<string, string | undefined>;
   const refreshToken = cookies.refreshToken;
-  // const accessToken = extractBearerToken(request.headers.authorization);
 
-  await logoutSession(request.server, { refreshToken });
+  // The access token is optional here — it lets us revoke the session even
+  // when the refresh cookie is missing or already expired.
+  let userId: string | undefined;
+
+  try {
+    await request.jwtVerify();
+    userId = (request.user as { sub?: string } | undefined)?.sub;
+  } catch {
+    // No usable access token; the refresh cookie alone has to do.
+  }
+
+  await logoutSession(request.server, { refreshToken, userId });
 
   reply.clearCookie("refreshToken", {
     path: "/",

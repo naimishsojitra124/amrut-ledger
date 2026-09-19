@@ -66,6 +66,7 @@ export async function invalidateCustomerCreated(queryClient: QueryClient) {
     ROOTS.customerList,
     ROOTS.customerStats,
     ROOTS.availableCards,
+    ROOTS.cardNumbering
   ]);
 }
 

@@ -123,6 +123,13 @@ function getStatusBadge(status: BillStatus) {
         </Badge>
       );
 
+    case "carried_forward":
+      return (
+        <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100">
+          Carried Forward
+        </Badge>
+      );
+
     default:
       return (
         <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
@@ -450,6 +457,7 @@ export default function BillsTable({ onViewBill }: BillsTableProps) {
               <SelectItem value="paid">Paid</SelectItem>
               <SelectItem value="partial">Partial</SelectItem>
               <SelectItem value="unpaid">Unpaid</SelectItem>
+              <SelectItem value="carried_forward">Carried Forward</SelectItem>
             </FilterSelect>
 
             <Button

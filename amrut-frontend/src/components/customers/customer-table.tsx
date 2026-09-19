@@ -335,7 +335,7 @@ export default function CustomerTable({
             customer.milkTypes.find((item) => item.isDefault) ?? null;
 
           return (
-            <div className="flex min-w-0 items-center justify-center gap-2 sm:gap-3">
+            <div className="flex min-w-0 items-center justify-start gap-2 sm:gap-3">
               <Avatar className="h-8 w-8 shrink-0" aria-hidden="true">
                 <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>

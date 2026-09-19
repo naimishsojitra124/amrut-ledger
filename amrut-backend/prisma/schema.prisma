@@ -49,6 +49,7 @@ enum BillStatus {
   paid
   partial
   unpaid
+  carried_forward
 }
 
 enum PaymentMethod {
@@ -106,17 +107,17 @@ type CustomerMilkType {
 type LedgerMilkEntry {
   milkTypeId   String @db.ObjectId
   milkTypeName String
-  rate         Float
+  rate         Int
   litres       Float
-  amount       Float
+  amount       Int
 }
 
 type LedgerProductEntry {
   productSuggestionId String? @db.ObjectId
   itemName            String
   quantity            Int
-  unitPrice           Float
-  amount              Float
+  unitPrice           Int
+  amount              Int
 }
 
 type DailyLedgerEntry {
@@ -126,23 +127,23 @@ type DailyLedgerEntry {
   milkEntries     LedgerMilkEntry[]
   productEntries  LedgerProductEntry[]
   notes           String               @default("")
-  totalAmount     Float                @default(0)
+  totalAmount     Int                  @default(0)
 }
 
 type BillMilkSummary {
   milkTypeId   String @db.ObjectId
   milkTypeName String
   litres       Float
-  rate         Float
-  amount       Float
+  rate         Int
+  amount       Int
 }
 
 type BillProductSummary {
   productSuggestionId String? @db.ObjectId
   itemName            String
   quantity            Int
-  unitPrice           Float
-  amount              Float
+  unitPrice           Int
+  amount              Int
 }
 
 type AuditFieldChange {
@@ -156,7 +157,7 @@ type FunctionOrderItem {
   itemName         String
   quantity         Float
   unit             String                      @default("kg")
-  unitPrice        Float
+  unitPrice        Int
   returnedQuantity Float                       @default(0)
   returnNote       String                      @default("")
   movements        FunctionOrderItemMovement[]
@@ -233,7 +234,7 @@ model Customer {
   id            String             @id @default(auto()) @map("_id") @db.ObjectId
   fullName      String
   searchName    String
-  mobileNumber  String?            @unique
+  mobileNumber  String?
   address       String
   depositAmount Int                @default(0)
   status        CustomerStatus     @default(active)
@@ -258,6 +259,7 @@ model Customer {
   @@index([status])
   @@index([searchName])
   @@index([fullName])
+  @@index([mobileNumber])
   @@map("customers")
 }
 
@@ -265,8 +267,8 @@ model DepositTransaction {
   id            String                 @id @default(auto()) @map("_id") @db.ObjectId
   customerId    String                 @db.ObjectId
   type          DepositTransactionType
-  amount        Float
-  balanceAfter  Float
+  amount        Int
+  balanceAfter  Int
   reference     String                 @default("")
   notes         String                 @default("")
   performedById String                 @db.ObjectId
@@ -299,7 +301,7 @@ model CardAssignment {
   assignedAt   DateTime
   unassignedAt DateTime?
 
-  depositAtAssignment Float @default(0)
+  depositAtAssignment Int @default(0)
 
   assignedById String @db.ObjectId
 
@@ -322,7 +324,7 @@ model CardAssignment {
 model MilkType {
   id        String         @id @default(auto()) @map("_id") @db.ObjectId
   name      String
-  rate      Float
+  rate      Int
   shortCode String         @unique
   status    MilkTypeStatus @default(active)
   createdAt DateTime       @default(now())
@@ -378,16 +380,23 @@ model Bill {
   milkSummary       BillMilkSummary[]
   totalItemsCount   Int                  @default(0)
   otherItems        BillProductSummary[]
-  otherItemsTotal   Float                @default(0)
-  previousDue       Float                @default(0)
-  grandTotal        Float                @default(0)
-  totalPaid         Float                @default(0)
-  outstandingAmount Float                @default(0)
+  otherItemsTotal   Int                  @default(0)
+  previousDue       Int                  @default(0)
+  grandTotal        Int                  @default(0)
+  totalPaid         Int                  @default(0)
+  outstandingAmount Int                  @default(0)
   status            BillStatus           @default(unpaid)
-  notes             String?
-  billVersion       Int                  @default(1)
-  generatedAt       DateTime             @default(now())
-  generatedById     String               @db.ObjectId
+
+  // When a bill is still unpaid at the time the next bill is generated, its
+  // balance is rolled into that bill's `previousDue`. The amount moves out of
+  // `outstandingAmount` so that summing outstanding across bills never counts
+  // the same debt twice.
+  carriedForwardAmount   Int      @default(0)
+  carriedForwardToBillId String?  @db.ObjectId
+  notes                  String?
+  billVersion            Int      @default(1)
+  generatedAt            DateTime @default(now())
+  generatedById          String   @db.ObjectId
 
   customer       Customer       @relation(fields: [customerId], references: [id])
   cardAssignment CardAssignment @relation(fields: [cardAssignmentId], references: [id])
@@ -395,6 +404,7 @@ model Bill {
   payments       Payment[]
 
   @@unique([customerId, month, year])
+  @@index([customerId, outstandingAmount])
   @@index([cardAssignmentId, month, year])
   @@index([status])
   @@index([dueDate, status])
@@ -409,8 +419,8 @@ model Payment {
   billYear        Int
   receiptNumber   String        @unique
   clientRequestId String        @unique
-  amount          Float
-  depositUsed     Float         @default(0)
+  amount          Int
+  depositUsed     Int           @default(0)
   paymentMethod   PaymentMethod
   referenceNumber String        @default("")
   notes           String        @default("")

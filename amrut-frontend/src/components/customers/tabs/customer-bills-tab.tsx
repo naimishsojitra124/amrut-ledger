@@ -68,6 +68,19 @@ function getStatusContent(bill: CustomerBillItemResponse) {
         </Badge>
       );
 
+    case "carried_forward":
+      return (
+        <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-start sm:gap-1">
+          <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100">
+            Carried Forward
+          </Badge>
+
+          <span className="text-xs text-neutral-500">
+            Balance moved to a later bill
+          </span>
+        </div>
+      );
+
     case "partial":
       return (
         <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-start sm:gap-1">

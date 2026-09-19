@@ -105,7 +105,7 @@ export async function assignCardHandler(request: FastifyRequest, reply: FastifyR
 
 export async function makeCardAvailableHandler(request: FastifyRequest, reply: FastifyReply) {
   const params = cardIdParamSchema.parse(request.params);
-  const result = await makeCardAvailable(request.server, params.id);
+  const result = await makeCardAvailable(request.server, params.id, getCurrentUserId(request));
 
   return reply.send(result);
 }

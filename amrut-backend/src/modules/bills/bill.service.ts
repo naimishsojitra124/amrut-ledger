@@ -1,7 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client";
+import type { BillStatus, PaymentMethod } from "../../../generated/prisma/enums";
+import {
+  AUDIT_FIELD,
+  change,
+  formatBillPeriod,
+  formatMoney,
+  formatPaymentMethod,
+  moneyChange,
+} from "../audit/audit.util";
 import type {
   BillCardAssignmentSummaryResponse,
+  BillCarriedForwardInfo,
   BillCustomerSummaryResponse,
   BillListItemResponse,
   BillListQuery,
@@ -42,6 +52,14 @@ type PaymentRecord = Prisma.PaymentGetPayload<{
     editedBy: true;
   };
 }>;
+
+interface EarlierUnpaidBill {
+  id: string;
+  billNumber: string;
+  outstandingAmount: number;
+  month: number;
+  year: number;
+}
 
 function createHttpError(statusCode: number, message: string) {
   const error = new Error(message) as Error & { statusCode: number };
@@ -96,6 +114,19 @@ function normalizeBillListItem(bill: BillRecord): BillListItemResponse {
     status: bill.status,
     billVersion: bill.billVersion ?? 1,
     generatedAt: bill.generatedAt.toISOString(),
+    carriedForward: normalizeCarriedForward(bill),
+  };
+}
+
+function normalizeCarriedForward(bill: {
+  carriedForwardAmount: number;
+  carriedForwardToBillId: string | null;
+}): BillCarriedForwardInfo | null {
+  if (!bill.carriedForwardToBillId || bill.carriedForwardAmount <= 0) return null;
+
+  return {
+    amount: bill.carriedForwardAmount,
+    toBillId: bill.carriedForwardToBillId,
   };
 }
 
@@ -167,7 +198,7 @@ function normalizePayment(payment: PaymentRecord): PaymentListItemResponse {
     receiptNumber: payment.receiptNumber,
     amount: payment.amount,
     depositUsed,
-    creditedAmount: round2(payment.amount + depositUsed),
+    creditedAmount: payment.amount + depositUsed,
     paymentMethod: payment.paymentMethod,
     referenceNumber: payment.referenceNumber ?? "",
     notes: payment.notes ?? "",
@@ -178,12 +209,9 @@ function normalizePayment(payment: PaymentRecord): PaymentListItemResponse {
   };
 }
 
-function paginate<T>(items: T[], page: number, limit: number) {
-  const totalItems = items.length;
+function buildPageInfo(totalItems: number, page: number, limit: number) {
   const totalPages = Math.max(1, Math.ceil(totalItems / limit));
-  const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * limit;
-  const paginatedItems = items.slice(start, start + limit);
+  const safePage = Math.min(Math.max(1, page), totalPages);
 
   const pageInfo: PageInfo = {
     page: safePage,
@@ -194,59 +222,47 @@ function paginate<T>(items: T[], page: number, limit: number) {
     hasPreviousPage: safePage > 1,
   };
 
-  return { paginatedItems, pageInfo };
+  return { pageInfo, skip: (safePage - 1) * limit };
 }
 
-function includesSearch(value: string | null | undefined, search: string) {
-  if (!value) return false;
-  return value.toLowerCase().includes(search.toLowerCase());
-}
-
-async function loadBills(app: FastifyInstance, query: BillListQuery) {
-  const prisma = getPrisma(app);
-
-  const where: any = {};
+/**
+ * Filtering, sorting and pagination all happen in the database.
+ *
+ * These lists back the bills and payments screens, which grow without bound.
+ * Loading every row into memory just to slice a page out of it was the single
+ * largest source of request latency in the app.
+ */
+function buildBillWhere(query: BillListQuery): Prisma.BillWhereInput {
+  const where: Prisma.BillWhereInput = {};
 
   if (query.customerId) where.customerId = query.customerId;
   if (query.month !== undefined) where.month = query.month;
   if (query.year !== undefined) where.year = query.year;
   if (query.status !== undefined) where.status = query.status;
 
-  const bills = await prisma.bill.findMany({
-    where,
-    orderBy: [{ year: "desc" }, { month: "desc" }, { generatedAt: "desc" }],
-    include: {
-      customer: true,
-      cardAssignment: {
-        include: {
-          card: true,
-        },
-      },
-      generatedBy: true,
-    },
-  });
+  const search = query.search?.trim();
 
-  let normalized = bills.map(normalizeBillListItem);
+  if (search) {
+    const matches: Prisma.BillWhereInput[] = [
+      { billNumber: { contains: search, mode: "insensitive" } },
+      { customer: { is: { fullName: { contains: search, mode: "insensitive" } } } },
+      { customer: { is: { mobileNumber: { contains: search } } } },
+    ];
 
-  if (query.search) {
-    const search = query.search.trim();
-    normalized = normalized.filter((bill: BillListItemResponse) => {
-      return (
-        includesSearch(bill.billNumber, search) ||
-        includesSearch(bill.customer.fullName, search) ||
-        includesSearch(bill.customer.mobileNumber, search) ||
-        includesSearch(String(bill.cardAssignment.cardNumber ?? ""), search)
-      );
-    });
+    // Card numbers are integers, so only an exact match is meaningful.
+    const cardNumber = Number(search);
+    if (Number.isInteger(cardNumber) && cardNumber > 0) {
+      matches.push({ cardAssignment: { is: { card: { is: { cardNumber } } } } });
+    }
+
+    where.OR = matches;
   }
 
-  return normalized;
+  return where;
 }
 
-async function loadPayments(app: FastifyInstance, query: PaymentListQuery) {
-  const prisma = getPrisma(app);
-
-  const where: any = {};
+function buildPaymentWhere(query: PaymentListQuery): Prisma.PaymentWhereInput {
+  const where: Prisma.PaymentWhereInput = {};
 
   if (query.customerId) where.customerId = query.customerId;
   if (query.billId) where.billId = query.billId;
@@ -254,38 +270,68 @@ async function loadPayments(app: FastifyInstance, query: PaymentListQuery) {
   if (query.billYear !== undefined) where.billYear = query.billYear;
   if (query.paymentMethod !== undefined) where.paymentMethod = query.paymentMethod;
 
-  const payments = await prisma.payment.findMany({
-    where,
-    orderBy: [{ receivedAt: "desc" }],
-    include: {
-      customer: true,
-      bill: true,
-      receivedBy: true,
-      editedBy: true,
-    },
-  });
+  const search = query.search?.trim();
 
-  let normalized = payments.map(normalizePayment);
-
-  if (query.search) {
-    const search = query.search.trim();
-    normalized = normalized.filter((payment: PaymentListItemResponse) => {
-      return (
-        includesSearch(payment.receiptNumber, search) ||
-        includesSearch(payment.referenceNumber, search) ||
-        includesSearch(payment.customer.fullName, search) ||
-        includesSearch(payment.customer.mobileNumber, search) ||
-        includesSearch(payment.bill.billNumber, search)
-      );
-    });
+  if (search) {
+    where.OR = [
+      { receiptNumber: { contains: search, mode: "insensitive" } },
+      { referenceNumber: { contains: search, mode: "insensitive" } },
+      { customer: { is: { fullName: { contains: search, mode: "insensitive" } } } },
+      { customer: { is: { mobileNumber: { contains: search } } } },
+      { bill: { is: { billNumber: { contains: search, mode: "insensitive" } } } },
+    ];
   }
 
-  return normalized;
+  return where;
 }
 
-function round2(value: number) {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
+const BILL_LIST_INCLUDE = {
+  customer: true,
+  cardAssignment: { include: { card: true } },
+  generatedBy: true,
+} satisfies Prisma.BillInclude;
+
+const PAYMENT_LIST_INCLUDE = {
+  customer: true,
+  bill: true,
+  receivedBy: true,
+  editedBy: true,
+} satisfies Prisma.PaymentInclude;
+
+const BILL_LIST_ORDER = [
+  { year: "desc" },
+  { month: "desc" },
+  { generatedAt: "desc" },
+] satisfies Prisma.BillOrderByWithRelationInput[];
+
+/** Money actually received against a bill, ignoring reversed receipts. */
+async function loadBillPaymentSummary(
+  prisma: PrismaClient,
+  billId: string,
+): Promise<BillPaymentSummaryResponse> {
+  const summary = await prisma.payment.aggregate({
+    where: { billId, ...ACTIVE_PAYMENT },
+    _count: { _all: true },
+    _sum: { amount: true, depositUsed: true },
+  });
+
+  return {
+    count: summary._count._all,
+    totalAmount: (summary._sum.amount ?? 0) + (summary._sum.depositUsed ?? 0),
+  };
 }
+
+/**
+ * Every monetary value in this system is a whole number of rupees. Amounts
+ * derived from litres (2.5 L at Rs. 54/L) become money here, and rounding at
+ * that boundary is what keeps bills, payments and balances reconciling exactly.
+ */
+function toRupees(value: number) {
+  return Math.round(value);
+}
+
+/** Reversed receipts must never count towards money received. */
+const ACTIVE_PAYMENT = { reversedAt: null } satisfies Prisma.PaymentWhereInput;
 
 export function getDepositCredit(
   outstanding: number,
@@ -293,7 +339,7 @@ export function getDepositCredit(
   _cashAmount: number,
   useDeposit: boolean,
 ) {
-  return useDeposit ? round2(Math.min(availableDeposit, outstanding)) : 0;
+  return useDeposit ? toRupees(Math.min(availableDeposit, outstanding)) : 0;
 }
 
 function compareMonthYear(yearA: number, monthA: number, yearB: number, monthB: number) {
@@ -308,18 +354,54 @@ function getBillNumber(month: number, year: number, cardNumber: number) {
   return `BILL-${String(month).padStart(2, "0")}-${year}-${cardNumber}`;
 }
 
+/**
+ * The bills whose balance rolls into the bill being generated for
+ * `month`/`year` — that is, every still-open bill from an earlier period.
+ *
+ * Exported so the carry-forward invariant can be tested directly: the balance
+ * must move off these bills onto the new one, never be duplicated across both.
+ */
+export function selectBillsToCarryForward<
+  T extends { month: number; year: number; outstandingAmount: number },
+>(openBills: T[], month: number, year: number): T[] {
+  return openBills.filter(
+    (bill) =>
+      Number(bill.outstandingAmount ?? 0) > 0 &&
+      compareMonthYear(bill.year, bill.month, year, month) < 0,
+  );
+}
+
+/** Whole-rupee total of the balances being carried forward. */
+export function sumCarriedForward(
+  bills: { outstandingAmount: number }[],
+): number {
+  return toRupees(
+    bills.reduce((sum, bill) => sum + Number(bill.outstandingAmount ?? 0), 0),
+  );
+}
+
 export async function getBills(
   app: FastifyInstance,
   query: BillListQuery,
 ): Promise<BillListResponse> {
+  const prisma = getPrisma(app);
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
+  const where = buildBillWhere(query);
 
-  const allBills = await loadBills(app, query);
-  const { paginatedItems, pageInfo } = paginate(allBills, page, limit);
+  const totalItems = await prisma.bill.count({ where });
+  const { pageInfo, skip } = buildPageInfo(totalItems, page, limit);
+
+  const bills = await prisma.bill.findMany({
+    where,
+    orderBy: BILL_LIST_ORDER,
+    skip,
+    take: limit,
+    include: BILL_LIST_INCLUDE,
+  });
 
   return {
-    items: paginatedItems as BillListItemResponse[],
+    items: bills.map(normalizeBillListItem),
     pageInfo,
   };
 }
@@ -344,39 +426,52 @@ export async function getBillById(app: FastifyInstance, billId: string): Promise
     throw createHttpError(404, "Bill not found");
   }
 
-  const payments = await prisma.payment.findMany({
-    where: { billId },
-  });
-
-  const paymentSummary: BillPaymentSummaryResponse = {
-    count: payments.length,
-    totalAmount: payments.reduce(
-      (sum: number, payment: { amount: number | null; depositUsed?: number | null }) =>
-        sum + (payment.amount ?? 0) + (payment.depositUsed ?? 0),
-      0,
-    ),
-  };
-
-  return normalizeBillResponse(bill, paymentSummary);
+  return normalizeBillResponse(bill, await loadBillPaymentSummary(prisma, billId));
 }
 
 export async function getBillsSummary(
   app: FastifyInstance,
   query: BillListQuery,
 ): Promise<BillSummaryResponse> {
-  const bills = (await loadBills(app, query)) as BillListItemResponse[];
+  const prisma = getPrisma(app);
+  const where = buildBillWhere(query);
+
+  const [totals, byStatus] = await Promise.all([
+    prisma.bill.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: {
+        totalMilkLitres: true,
+        totalItemsCount: true,
+        otherItemsTotal: true,
+        grandTotal: true,
+        previousDue: true,
+        totalPaid: true,
+        outstandingAmount: true,
+      },
+    }),
+    prisma.bill.groupBy({ by: ["status"], where, _count: { _all: true } }),
+  ]);
+
+  const countFor = (status: BillStatus) =>
+    byStatus.find((row: { status: BillStatus; _count: { _all: number } }) => row.status === status)
+      ?._count._all ?? 0;
 
   return {
-    totalBills: bills.length,
-    paidBills: bills.filter((bill) => bill.status === "paid").length,
-    partialBills: bills.filter((bill) => bill.status === "partial").length,
-    unpaidBills: bills.filter((bill) => bill.status === "unpaid").length,
-    totalMilkLitres: bills.reduce((sum, bill) => sum + (bill.totalMilkLitres ?? 0), 0),
-    totalItemsCount: bills.reduce((sum, bill) => sum + (bill.totalItemsCount ?? 0), 0),
-    otherItemsTotal: bills.reduce((sum, bill) => sum + (bill.otherItemsTotal ?? 0), 0),
-    grandTotal: bills.reduce((sum, bill) => sum + (bill.grandTotal ?? 0), 0),
-    totalPaid: bills.reduce((sum, bill) => sum + (bill.totalPaid ?? 0), 0),
-    outstandingAmount: bills.reduce((sum, bill) => sum + (bill.outstandingAmount ?? 0), 0),
+    totalBills: totals._count._all,
+    paidBills: countFor("paid"),
+    partialBills: countFor("partial"),
+    unpaidBills: countFor("unpaid"),
+    carriedForwardBills: countFor("carried_forward"),
+    totalMilkLitres: toRupees(totals._sum.totalMilkLitres ?? 0),
+    totalItemsCount: totals._sum.totalItemsCount ?? 0,
+    otherItemsTotal: totals._sum.otherItemsTotal ?? 0,
+    // `grandTotal` on each bill includes the balance carried over from earlier
+    // bills. Subtracting `previousDue` gives what was actually billed in this
+    // period, so the figure cannot be inflated by a rolled-over balance.
+    grandTotal: (totals._sum.grandTotal ?? 0) - (totals._sum.previousDue ?? 0),
+    totalPaid: totals._sum.totalPaid ?? 0,
+    outstandingAmount: totals._sum.outstandingAmount ?? 0,
   };
 }
 
@@ -409,20 +504,7 @@ export async function getCustomerBillByMonth(
     throw createHttpError(404, "Bill not found");
   }
 
-  const payments = await prisma.payment.findMany({
-    where: { billId: bill.id },
-  });
-
-  const paymentSummary: BillPaymentSummaryResponse = {
-    count: payments.length,
-    totalAmount: payments.reduce(
-      (sum: number, payment: { amount: number | null; depositUsed?: number | null }) =>
-        sum + (payment.amount ?? 0) + (payment.depositUsed ?? 0),
-      0,
-    ),
-  };
-
-  return normalizeBillResponse(bill, paymentSummary);
+  return normalizeBillResponse(bill, await loadBillPaymentSummary(prisma, bill.id));
 }
 
 export async function getBillPayments(
@@ -440,34 +522,31 @@ export async function getBillPayments(
     throw createHttpError(404, "Bill not found");
   }
 
-  const page = query.page ?? 1;
-  const limit = query.limit ?? 20;
-
-  const allPayments = await loadPayments(app, {
-    ...query,
-    billId,
-  });
-
-  const { paginatedItems, pageInfo } = paginate(allPayments, page, limit);
-
-  return {
-    items: paginatedItems as PaymentListItemResponse[],
-    pageInfo,
-  };
+  return getPayments(app, { ...query, billId });
 }
 
 export async function getPayments(
   app: FastifyInstance,
   query: PaymentListQuery,
 ): Promise<PaymentListResponse> {
+  const prisma = getPrisma(app);
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
+  const where = buildPaymentWhere(query);
 
-  const allPayments = await loadPayments(app, query);
-  const { paginatedItems, pageInfo } = paginate(allPayments, page, limit);
+  const totalItems = await prisma.payment.count({ where });
+  const { pageInfo, skip } = buildPageInfo(totalItems, page, limit);
+
+  const payments = await prisma.payment.findMany({
+    where,
+    orderBy: { receivedAt: "desc" },
+    skip,
+    take: limit,
+    include: PAYMENT_LIST_INCLUDE,
+  });
 
   return {
-    items: paginatedItems as PaymentListItemResponse[],
+    items: payments.map(normalizePayment),
     pageInfo,
   };
 }
@@ -499,28 +578,49 @@ export async function getPaymentsSummary(
   app: FastifyInstance,
   query: PaymentListQuery,
 ): Promise<PaymentSummaryResponse> {
-  const payments = (await loadPayments(app, query)) as PaymentListItemResponse[];
+  const prisma = getPrisma(app);
 
-  const cashPayments = payments.filter((payment) => payment.paymentMethod === "cash");
-  const upiPayments = payments.filter((payment) => payment.paymentMethod === "upi");
+  // Reversed receipts stay visible in the list but must never be counted as
+  // money taken, otherwise the totals here disagree with the customer
+  // statement and with every bill's outstanding balance.
+  const where: Prisma.PaymentWhereInput = {
+    ...buildPaymentWhere(query),
+    ...ACTIVE_PAYMENT,
+  };
+
+  const [totals, byMethod] = await Promise.all([
+    prisma.payment.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: { amount: true, depositUsed: true },
+      _max: { receivedAt: true },
+    }),
+    prisma.payment.groupBy({
+      by: ["paymentMethod"],
+      where,
+      _count: { _all: true },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const methodRow = (method: PaymentMethod) =>
+    byMethod.find(
+      (row: {
+        paymentMethod: PaymentMethod;
+        _count: { _all: number };
+        _sum: { amount: number | null };
+      }) => row.paymentMethod === method,
+    );
 
   return {
-    totalPayments: payments.length,
-    totalAmount: payments.reduce(
-      (sum: number, payment: { amount: number | null }) => sum + (payment.amount ?? 0),
-      0,
-    ),
-    cashCount: cashPayments.length,
-    cashAmount: cashPayments.reduce(
-      (sum: number, payment: { amount: number | null }) => sum + (payment.amount ?? 0),
-      0,
-    ),
-    upiCount: upiPayments.length,
-    upiAmount: upiPayments.reduce(
-      (sum: number, payment: { amount: number | null }) => sum + (payment.amount ?? 0),
-      0,
-    ),
-    latestPaymentAt: payments[0]?.receivedAt ?? null,
+    totalPayments: totals._count._all,
+    totalAmount: totals._sum.amount ?? 0,
+    depositApplied: totals._sum.depositUsed ?? 0,
+    cashCount: methodRow("cash")?._count._all ?? 0,
+    cashAmount: methodRow("cash")?._sum.amount ?? 0,
+    upiCount: methodRow("upi")?._count._all ?? 0,
+    upiAmount: methodRow("upi")?._sum.amount ?? 0,
+    latestPaymentAt: totals._max.receivedAt ? totals._max.receivedAt.toISOString() : null,
   };
 }
 
@@ -704,55 +804,49 @@ export async function generateBill(
   const milkSummary = [...milkMap.values()].map((item) => ({
     milkTypeId: item.milkTypeId,
     milkTypeName: item.milkTypeName,
-    litres: round2(item.litres),
-    rate: round2(item.rate),
-    amount: round2(item.amount),
+    litres: Math.round(item.litres * 100) / 100,
+    rate: toRupees(item.rate),
+    amount: toRupees(item.amount),
   }));
 
   const otherItems = [...productMap.values()].map((item) => ({
     productSuggestionId: item.productSuggestionId,
     itemName: item.itemName,
     quantity: item.quantity,
-    unitPrice: round2(item.unitPrice),
-    amount: round2(item.amount),
+    unitPrice: toRupees(item.unitPrice),
+    amount: toRupees(item.amount),
   }));
 
-  const totalMilkLitres = round2(milkSummary.reduce((sum, item) => sum + item.litres, 0));
+  const totalMilkLitres = Math.round(milkSummary.reduce((sum, item) => sum + item.litres, 0) * 100) / 100;
 
-  const otherItemsTotal = round2(otherItems.reduce((sum, item) => sum + item.amount, 0));
+  const otherItemsTotal = toRupees(otherItems.reduce((sum, item) => sum + item.amount, 0));
 
   const totalItemsCount = otherItems.reduce((sum, item) => sum + item.quantity, 0);
 
   /**
-   * Previous due = outstanding amount from bills
-   * before this billing month.
+   * Unpaid balances from earlier bills roll into this one.
+   *
+   * The balance MOVES: each earlier bill has its `outstandingAmount` cleared
+   * and recorded in `carriedForwardAmount` instead, so the debt exists in
+   * exactly one place. Summing `outstandingAmount` across a customer's bills
+   * now gives their true balance; previously the same rupees were counted once
+   * on the old bill and again inside this bill's `previousDue`, which inflated
+   * every receivable figure and compounded month over month.
    */
-  const previousBills: { outstandingAmount?: number | null; month: number; year: number }[] =
-    await prisma.bill.findMany({
-      where: {
-        customerId,
-      },
-      select: {
-        outstandingAmount: true,
-        month: true,
-        year: true,
-      },
-    });
+  const openBills: EarlierUnpaidBill[] = await prisma.bill.findMany({
+    where: { customerId, outstandingAmount: { gt: 0 } },
+    select: { id: true, billNumber: true, outstandingAmount: true, month: true, year: true },
+  });
 
-  const previousDue = round2(
-    previousBills.reduce(
-      (sum: number, bill: { outstandingAmount?: number | null; month: number; year: number }) => {
-        const isPrevious = compareMonthYear(bill.year, bill.month, year, month) < 0;
+  const earlierUnpaidBills = selectBillsToCarryForward(openBills, month, year);
 
-        return isPrevious ? sum + Number(bill.outstandingAmount ?? 0) : sum;
-      },
-      0,
-    ),
+  const previousDue = sumCarriedForward(earlierUnpaidBills);
+
+  const currentCharges = toRupees(
+    milkSummary.reduce((sum, item) => sum + item.amount, 0) + otherItemsTotal,
   );
 
-  const grandTotal = round2(
-    milkSummary.reduce((sum, item) => sum + item.amount, 0) + otherItemsTotal + previousDue,
-  );
+  const grandTotal = currentCharges + previousDue;
 
   const billDate = new Date(Date.UTC(year, month, 0));
   const dueDate = new Date(Date.UTC(year, month, 10));
@@ -798,22 +892,39 @@ export async function generateBill(
       },
     });
 
+    // Move the old balances onto this bill so they are never counted twice.
+    for (const earlier of earlierUnpaidBills) {
+      await tx.bill.update({
+        where: { id: earlier.id },
+        data: {
+          outstandingAmount: 0,
+          carriedForwardAmount: toRupees(Number(earlier.outstandingAmount ?? 0)),
+          carriedForwardToBillId: bill.id,
+          status: "carried_forward",
+        },
+      });
+    }
+
     await tx.auditLog.create({
       data: {
         customerId,
         type: "bill_generated",
-        title: `Bill generated: ${bill.billNumber}`,
+        title: `Bill ${bill.billNumber} generated for ${formatBillPeriod(month, year)}`,
         details: [
-          {
-            field: "billNumber",
-            oldValue: "",
-            newValue: bill.billNumber,
-          },
-          {
-            field: "grandTotal",
-            oldValue: "",
-            newValue: String(grandTotal),
-          },
+          change(AUDIT_FIELD.billNumber, "", bill.billNumber),
+          change(AUDIT_FIELD.billPeriod, "", formatBillPeriod(month, year)),
+          moneyChange(AUDIT_FIELD.billTotal, null, grandTotal),
+          ...(previousDue > 0
+            ? [
+                change(
+                  AUDIT_FIELD.previousDue,
+                  earlierUnpaidBills
+                    .map((earlier: EarlierUnpaidBill) => earlier.billNumber)
+                    .join(", "),
+                  formatMoney(previousDue),
+                ),
+              ]
+            : []),
         ],
         performedById,
         relatedEntityType: "bill",
@@ -861,23 +972,30 @@ export async function recordPayment(
       throw createHttpError(404, "Bill not found");
     }
 
+    if (bill.status === "carried_forward") {
+      throw createHttpError(
+        409,
+        "This bill's balance was carried forward to a later bill. Record the payment against that bill instead.",
+      );
+    }
+
     if (bill.status === "paid" || Number(bill.outstandingAmount) <= 0) {
       throw createHttpError(409, "This bill has no outstanding amount");
     }
 
-    const amount = round2(input.amount);
-    const outstanding = round2(Number(bill.outstandingAmount));
-    const availableDeposit = round2(Number(bill.customer.depositAmount ?? 0));
+    const amount = toRupees(input.amount);
+    const outstanding = toRupees(Number(bill.outstandingAmount));
+    const availableDeposit = toRupees(Number(bill.customer.depositAmount ?? 0));
 
     if (amount > outstanding) {
       throw createHttpError(
         400,
-        `Payment cannot exceed outstanding amount of ₹${outstanding.toFixed(2)}`,
+        `Payment cannot exceed the outstanding amount of ${formatMoney(outstanding)}`,
       );
     }
 
     const depositUsed = getDepositCredit(outstanding, availableDeposit, amount, input.useDeposit);
-    const creditedAmount = round2(amount + depositUsed);
+    const creditedAmount = amount + depositUsed;
 
     if (creditedAmount <= 0 || creditedAmount > outstanding) {
       throw createHttpError(400, "Payment and deposit credit cannot exceed the outstanding amount");
@@ -885,9 +1003,9 @@ export async function recordPayment(
 
     const receiptNumber = await getReceiptNumber(tx, bill.year);
 
-    const totalPaid = round2(Number(bill.totalPaid) + creditedAmount);
+    const totalPaid = toRupees(Number(bill.totalPaid) + creditedAmount);
 
-    const newOutstanding = round2(Number(bill.grandTotal) - totalPaid);
+    const newOutstanding = toRupees(Number(bill.grandTotal) - totalPaid);
 
     const status = newOutstanding <= 0 ? "paid" : totalPaid > 0 ? "partial" : "unpaid";
 
@@ -926,39 +1044,38 @@ export async function recordPayment(
       },
     });
 
+    const depositAfter = availableDeposit - depositUsed;
+
     if (depositUsed > 0) {
       await tx.customer.update({
         where: { id: bill.customerId },
-        data: { depositAmount: round2(availableDeposit - depositUsed), updatedById: performedById },
+        data: { depositAmount: depositAfter, updatedById: performedById },
       });
-      await tx.depositTransaction.create({ data: { customerId: bill.customerId, type: "bill_applied", amount: -depositUsed, balanceAfter: round2(availableDeposit - depositUsed), reference: receiptNumber, performedById } });
+      await tx.depositTransaction.create({
+        data: {
+          customerId: bill.customerId,
+          type: "bill_applied",
+          amount: -depositUsed,
+          balanceAfter: depositAfter,
+          reference: receiptNumber,
+          performedById,
+        },
+      });
     }
 
     await tx.auditLog.create({
       data: {
         customerId: bill.customerId,
         type: "payment_added",
-        title: `Payment received: ${receiptNumber}`,
+        title: `Payment of ${formatMoney(creditedAmount)} received against ${bill.billNumber}`,
         details: [
-          {
-            field: "amount",
-            oldValue: "",
-            newValue: String(amount),
-          },
-          {
-            field: "paymentMethod",
-            oldValue: "",
-            newValue: input.paymentMethod,
-          },
+          change(AUDIT_FIELD.receiptNumber, "", receiptNumber),
+          moneyChange(AUDIT_FIELD.amountReceived, null, amount),
+          change(AUDIT_FIELD.paymentMethod, "", formatPaymentMethod(input.paymentMethod)),
           ...(depositUsed > 0
-            ? [
-                {
-                  field: "depositUsed",
-                  oldValue: String(availableDeposit),
-                  newValue: String(round2(availableDeposit - depositUsed)),
-                },
-              ]
+            ? [moneyChange(AUDIT_FIELD.depositApplied, null, depositUsed)]
             : []),
+          moneyChange(AUDIT_FIELD.outstanding, outstanding, Math.max(0, newOutstanding)),
         ],
         performedById,
         relatedEntityType: "payment",
@@ -971,14 +1088,8 @@ export async function recordPayment(
         data: {
           customerId: bill.customerId,
           type: "deposit_updated",
-          title: `Deposit used for ${bill.billNumber}`,
-          details: [
-            {
-              field: "depositAmount",
-              oldValue: String(availableDeposit),
-              newValue: String(round2(availableDeposit - depositUsed)),
-            },
-          ],
+          title: `${formatMoney(depositUsed)} deposit applied to ${bill.billNumber}`,
+          details: [moneyChange(AUDIT_FIELD.depositBalance, availableDeposit, depositAfter)],
           performedById,
           relatedEntityType: "payment",
           relatedEntityId: createdPayment.id,
@@ -1002,18 +1113,74 @@ export async function reversePayment(app: FastifyInstance, paymentId: string, re
     const laterBill = await tx.bill.findFirst({ where: { customerId: existing.customerId, OR: [{ year: { gt: existing.bill.year } }, { year: existing.bill.year, month: { gt: existing.bill.month } }] } });
     if (laterBill) throw createHttpError(409, "Reverse this payment before generating a later bill");
 
-    const creditedAmount = round2(existing.amount + (existing.depositUsed ?? 0));
-    const outstandingAmount = round2(existing.bill.outstandingAmount + creditedAmount);
-    const totalPaid = round2(existing.bill.totalPaid - creditedAmount);
+    const creditedAmount = toRupees(existing.amount + (existing.depositUsed ?? 0));
+    const outstandingAmount = toRupees(existing.bill.outstandingAmount + creditedAmount);
+    const totalPaid = toRupees(existing.bill.totalPaid - creditedAmount);
     const status = outstandingAmount >= existing.bill.grandTotal ? "unpaid" : "partial";
 
-    await tx.bill.update({ where: { id: existing.billId }, data: { totalPaid: Math.max(0, totalPaid), outstandingAmount, status } });
+    await tx.bill.update({
+      where: { id: existing.billId },
+      data: { totalPaid: Math.max(0, totalPaid), outstandingAmount, status },
+    });
+
+    let depositBefore = 0;
+    let depositAfter = 0;
+
     if (existing.depositUsed > 0) {
-      const customer = await tx.customer.update({ where: { id: existing.customerId }, data: { depositAmount: { increment: existing.depositUsed }, updatedById: performedById } });
-      await tx.depositTransaction.create({ data: { customerId: existing.customerId, type: "payment_reversal", amount: existing.depositUsed, balanceAfter: customer.depositAmount, reference: existing.receiptNumber, notes: reason, performedById } });
+      const customer = await tx.customer.update({
+        where: { id: existing.customerId },
+        data: {
+          depositAmount: { increment: existing.depositUsed },
+          updatedById: performedById,
+        },
+      });
+
+      depositAfter = customer.depositAmount;
+      depositBefore = depositAfter - existing.depositUsed;
+
+      await tx.depositTransaction.create({
+        data: {
+          customerId: existing.customerId,
+          type: "payment_reversal",
+          amount: existing.depositUsed,
+          balanceAfter: customer.depositAmount,
+          reference: existing.receiptNumber,
+          notes: reason,
+          performedById,
+        },
+      });
     }
-    const reversed = await tx.payment.update({ where: { id: existing.id }, data: { reversedAt: new Date(), reversalReason: reason, reversedById: performedById }, include: { customer: true, bill: true, receivedBy: true, editedBy: true } });
-    await tx.auditLog.create({ data: { customerId: existing.customerId, type: "payment_reversed", title: `Payment reversed: ${existing.receiptNumber}`, details: [{ field: "reason", oldValue: "", newValue: reason }], performedById, relatedEntityType: "payment", relatedEntityId: existing.id } as any });
+
+    const reversed = await tx.payment.update({
+      where: { id: existing.id },
+      data: { reversedAt: new Date(), reversalReason: reason, reversedById: performedById },
+      include: { customer: true, bill: true, receivedBy: true, editedBy: true },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        customerId: existing.customerId,
+        type: "payment_reversed",
+        title: `Payment ${existing.receiptNumber} of ${formatMoney(creditedAmount)} reversed`,
+        details: [
+          change(AUDIT_FIELD.receiptNumber, "", existing.receiptNumber),
+          moneyChange(AUDIT_FIELD.amountReceived, creditedAmount, 0),
+          change(AUDIT_FIELD.reason, "", reason),
+          moneyChange(
+            AUDIT_FIELD.outstanding,
+            existing.bill.outstandingAmount,
+            outstandingAmount,
+          ),
+          ...(existing.depositUsed > 0
+            ? [moneyChange(AUDIT_FIELD.depositBalance, depositBefore, depositAfter)]
+            : []),
+        ],
+        performedById,
+        relatedEntityType: "payment",
+        relatedEntityId: existing.id,
+      } as any,
+    });
+
     return reversed;
   });
   return normalizePayment(payment);

@@ -1,6 +1,10 @@
 export type CustomerStatus = "active" | "archived";
 export type PaymentMethod = "cash" | "upi";
-export type BillStatus = "paid" | "partial" | "unpaid";
+// Single source of truth lives in types/bill.ts; re-exported so existing
+// imports from this module keep working.
+import type { BillStatus } from "./bill";
+
+export type { BillStatus };
 export type AuditLogType =
   | "customer_created"
   | "customer_updated"
@@ -15,6 +19,7 @@ export type AuditLogType =
   | "entry_deleted"
   | "bill_generated"
   | "payment_added"
+  | "payment_reversed"
   | "note_added";
 export type AuditLogRelatedEntityType =
   | "ledger"

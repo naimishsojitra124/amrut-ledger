@@ -1,11 +1,72 @@
 import "dotenv/config";
 import bcrypt from "bcrypt";
+import { randomBytes } from "node:crypto";
 import { PrismaClient } from "../generated/prisma/client";
 
 const prisma = new PrismaClient();
 
 const SALT_ROUNDS = 12;
-const TEMP_PASSWORD = "Password@123";
+
+/**
+ * This script DROPS every collection before re-seeding. It must never be able
+ * to run against a production database, and it must never leave a known
+ * password behind, so:
+ *
+ *   - production is refused outright,
+ *   - any other environment requires an explicit `--force` (or SEED_FORCE=true),
+ *   - the seeded password is random and printed once at the end.
+ */
+const FORCED = process.argv.includes("--force") || process.env.SEED_FORCE === "true";
+
+function generateSeedPassword(): string {
+  // Satisfies the app password policy: lower + upper + digit, >= 10 chars.
+  return `Seed${randomBytes(9).toString("base64url").replace(/[^A-Za-z0-9]/g, "")}7a`;
+}
+
+const TEMP_PASSWORD = process.env.SEED_PASSWORD ?? generateSeedPassword();
+
+function redactDatabaseUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const credentials = parsed.username ? `${parsed.username}:***@` : "";
+    return `${parsed.protocol}//${credentials}${parsed.host}${parsed.pathname}`;
+  } catch {
+    return "<unparseable DATABASE_URL>";
+  }
+}
+
+function assertSafeToSeed(): void {
+  const nodeEnv = process.env.NODE_ENV ?? "development";
+  const databaseUrl = process.env.DATABASE_URL ?? "";
+
+  if (nodeEnv === "production") {
+    throw new Error(
+      "Refusing to seed: NODE_ENV=production. This script deletes every record in the database.",
+    );
+  }
+
+  if (!databaseUrl) {
+    throw new Error("Refusing to seed: DATABASE_URL is not set.");
+  }
+
+  if (!FORCED) {
+    throw new Error(
+      [
+        "Refusing to seed without an explicit confirmation.",
+        "",
+        "This script DELETES every user, customer, ledger, bill, payment and audit log in:",
+        `  ${redactDatabaseUrl(databaseUrl)}`,
+        "",
+        "Re-run with --force if that is really what you want:",
+        "  npm run seed -- --force",
+      ].join("\n"),
+    );
+  }
+
+  console.warn(
+    `About to WIPE and re-seed ${redactDatabaseUrl(databaseUrl)} (NODE_ENV=${nodeEnv}).`,
+  );
+}
 
 const now = new Date();
 
@@ -210,7 +271,7 @@ type SeedCard = { id: string; cardNumber: number; status: string };
 type SeedCustomer = {
   id: string;
   fullName: string;
-  mobileNumber: string;
+  mobileNumber: string | null;
   address: string;
   depositAmount: number;
   status: "active" | "archived";
@@ -336,6 +397,8 @@ function aggregateProductSummary(
 }
 
 async function main() {
+  assertSafeToSeed();
+
   console.log("Seeding Amrut Ledger database...");
 
   await prisma.auditLog.deleteMany();
@@ -771,7 +834,7 @@ async function main() {
     grandTotal: number;
     totalPaid: number;
     outstandingAmount: number;
-    status: "paid" | "partial" | "unpaid";
+    status: "paid" | "partial" | "unpaid" | "carried_forward";
     generatedAt: Date;
     generatedById: string;
   }> = [];
@@ -800,7 +863,7 @@ async function main() {
         previousDue,
     );
 
-    let status: "paid" | "partial" | "unpaid";
+    let status: "paid" | "partial" | "unpaid" | "carried_forward";
     if (index % 3 === 0) {
       status = "paid";
     } else if (index % 3 === 1) {
@@ -970,7 +1033,7 @@ async function main() {
         {
           field: "Mobile",
           oldValue: `987650000${index + 1}`,
-          newValue: customer.mobileNumber,
+          newValue: customer.mobileNumber ?? "",
         },
         { field: "Address", oldValue: "", newValue: customer.address },
       ],
@@ -1147,6 +1210,13 @@ async function main() {
   console.log(`Bills: ${bills.length}`);
   console.log(`Payments: ${payments.length}`);
   console.log(`Audit logs: ${auditLogsToCreate.length}`);
+
+  console.log("");
+  console.log("─".repeat(60));
+  console.log("Seeded user password (shown once, not stored anywhere):");
+  console.log(`  ${TEMP_PASSWORD}`);
+  console.log("Change it from Settings > Users before using this data.");
+  console.log("─".repeat(60));
 }
 
 main()

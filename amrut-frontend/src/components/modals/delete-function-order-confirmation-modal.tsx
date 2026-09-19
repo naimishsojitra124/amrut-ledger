@@ -42,7 +42,7 @@ export default function DeleteFunctionOrderConfirmationModal() {
 
       closeModal();
     } catch {
-      toast.error("Unable to delete function order. Please try again.");
+      // Already surfaced by the global error handler.
     }
   }
 

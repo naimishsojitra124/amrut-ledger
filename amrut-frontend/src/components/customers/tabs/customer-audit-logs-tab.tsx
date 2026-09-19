@@ -75,6 +75,7 @@ const ALL_AUDIT_TYPES: AuditLogType[] = [
   "entry_deleted",
   "bill_generated",
   "payment_added",
+  "payment_reversed",
   "note_added",
 ];
 
@@ -157,12 +158,33 @@ const ACTION_META: Record<AuditLogType, ActionMeta> = {
     tone: "text-emerald-600 border-emerald-500",
     icon: Wallet,
   },
+  payment_reversed: {
+    label: "Payment Reversed",
+    tone: "text-red-600 border-red-500",
+    icon: Wallet,
+  },
   note_added: {
     label: "Note Added",
     tone: "text-violet-600 border-violet-500",
     icon: NotebookPen,
   },
 };
+
+/**
+ * Falls back gracefully when the API introduces an audit type this build does
+ * not know about yet, rather than crashing the whole history tab.
+ */
+function getActionMeta(type: AuditLogType): ActionMeta {
+  return (
+    ACTION_META[type] ?? {
+      label: String(type)
+        .replace(/[_-]+/g, " ")
+        .replace(/\b\w/g, (character) => character.toUpperCase()),
+      tone: "text-neutral-600 border-neutral-400",
+      icon: Info,
+    }
+  );
+}
 
 const HIDDEN_AUDIT_FIELDS = new Set([
   "id",
@@ -722,7 +744,7 @@ export default function CustomerAuditLogsTab({ customerId }: Props) {
                   checked={activeTypes.includes(type)}
                   onCheckedChange={() => toggleType(type)}
                 >
-                  {ACTION_META[type].label}
+                  {getActionMeta(type).label}
                 </DropdownMenuCheckboxItem>
               ))}
 
@@ -762,7 +784,7 @@ export default function CustomerAuditLogsTab({ customerId }: Props) {
           ) : rows.length > 0 ? (
             <div>
               {rows.map((row) => {
-                const meta = ACTION_META[row.log.type];
+                const meta = getActionMeta(row.log.type);
                 const Icon = meta.icon;
 
                 return (

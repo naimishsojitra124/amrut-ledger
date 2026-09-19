@@ -36,9 +36,20 @@ export interface CardSummaryResponse {
   availableCards: number;
 }
 
+export interface CardListPageInfo {
+  page: number;
+  limit: number;
+  totalItems: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
 export interface CardListResponse {
   items: CardResponse[];
+  /** Counted across all cards, so the totals do not change as you filter. */
   summary: CardSummaryResponse;
+  pageInfo: CardListPageInfo;
 }
 
 export interface CardHistoryResponse {
@@ -67,6 +78,8 @@ export interface AssignCardRequest {
 export interface CardListQuery {
   status?: CardStatus | undefined;
   search?: string | undefined;
+  page?: number | undefined;
+  limit?: number | undefined;
 }
 
 export interface CardIdParams {

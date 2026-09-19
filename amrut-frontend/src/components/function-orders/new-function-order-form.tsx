@@ -31,7 +31,7 @@ export default function NewFunctionOrderForm() {
 
       toast.success("Function order created");
     } catch {
-      toast.error("Unable to create function order. Please try again.");
+      // Already surfaced by the global error handler.
     }
   }, [create, draft]);
 

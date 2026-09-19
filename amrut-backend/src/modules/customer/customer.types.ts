@@ -81,13 +81,14 @@ export interface CreateCustomerRequest {
 }
 
 export interface UpdateCustomerRequest {
-  fullName?: string;
-  mobileNumber?: string;
-  address?: string;
+  fullName?: string | undefined;
+  /** Omitted leaves the number unchanged; an empty string clears it. */
+  mobileNumber?: string | undefined;
+  address?: string | undefined;
   depositAmount?: number | undefined;
   primaryMilkTypeId?: string | undefined;
   otherMilkTypeIds?: string[] | undefined;
-  cardNumber?: number;
+  cardNumber?: number | undefined;
   notes?: string | undefined;
 }
 

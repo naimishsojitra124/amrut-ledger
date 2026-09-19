@@ -1,7 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { addDailyLedgerEntry } from "@/services/daily-ledger.service";
+import { getApiErrorMessage } from "@/services/utils/apiConnector";
 import axios from "axios";
+
+/**
+ * Statuses that mean "not now" rather than "never".
+ *
+ * A queued entry must never be thrown away because the session happened to
+ * expire or the server was briefly busy — that is the user's unsaved work.
+ * Only a genuine rejection of the entry itself (400, 404, 409, 422) is
+ * permanent.
+ */
+const RETRYABLE_STATUSES = new Set([401, 403, 408, 425, 429, 500, 502, 503, 504]);
+
+function isRetryable(status: number | undefined): boolean {
+  if (status === undefined) return true; // Network failure: try again later.
+  return RETRYABLE_STATUSES.has(status) || status >= 500;
+}
 import {
   getQueuedLedgerEntries,
   removeQueuedLedgerEntry,
@@ -33,12 +49,9 @@ export function useOfflineLedgerSync() {
         const status = axios.isAxiosError(error)
           ? error.response?.status
           : undefined;
-        const lastError = axios.isAxiosError(error)
-          ? ((error.response?.data as { message?: string } | undefined)
-              ?.message ?? error.message)
-          : error instanceof Error
-            ? error.message
-            : "Sync failed";
+        const lastError = getApiErrorMessage(error, "Sync failed");
+
+        const retryable = isRetryable(status);
 
         updateQueuedLedgerEntry(entry.id, {
           attempts,
@@ -46,8 +59,7 @@ export function useOfflineLedgerSync() {
           state:
             status === 409
               ? "conflict"
-              : attempts >= 5 ||
-                  (status != null && status >= 400 && status < 500)
+              : !retryable || attempts >= 8
                 ? "dead-letter"
                 : "pending",
           nextRetryAt: new Date(

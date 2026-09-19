@@ -302,9 +302,21 @@ export async function refreshSession(
   };
 }
 
+/**
+ * Logging out always succeeds.
+ *
+ * Previously a missing or expired refresh cookie made this throw 401, which
+ * meant the client cleared its own state while the server-side session stayed
+ * alive for the full 30-day refresh window. Logout is a request to end a
+ * session; if we cannot identify one there is nothing to end, and that is a
+ * success, not an error.
+ *
+ * When the cookie is unreadable we fall back to the access token so an expired
+ * refresh token still revokes the right session.
+ */
 export async function logoutSession(
   app: FastifyInstance,
-  input: { accessToken?: string | undefined; refreshToken?: string | undefined },
+  input: { userId?: string | undefined; refreshToken?: string | undefined },
 ): Promise<{ success: true }> {
   const prisma = prismaOf(app);
 
@@ -312,21 +324,49 @@ export async function logoutSession(
 
   if (input.refreshToken) {
     try {
-      const payload = verifyRefreshToken(input.refreshToken);
-      sessionId = payload.sid ?? null;
+      sessionId = verifyRefreshToken(input.refreshToken).sid ?? null;
     } catch {
-      // ignore refresh verification failure and fall back to access token
+      // Expired or tampered cookie. Fall through to the access token below.
+    }
+
+    if (!sessionId) {
+      // The signature failed, but the payload may still name the session. Only
+      // trust it after confirming the stored hash matches the presented token.
+      const decoded = jwt.decode(input.refreshToken);
+      const candidate =
+        decoded && typeof decoded === "object" && typeof decoded.sid === "string"
+          ? decoded.sid
+          : null;
+
+      if (candidate) {
+        const session = await prisma.authSession.findUnique({
+          where: { sessionId: candidate },
+        });
+
+        if (session && (await compareRefreshToken(input.refreshToken, session.refreshTokenHash))) {
+          sessionId = candidate;
+        }
+      }
     }
   }
 
-  if (!sessionId) {
-    throw createHttpError(401, "Unauthorized");
+  if (sessionId) {
+    await prisma.authSession.updateMany({
+      where: { sessionId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    return { success: true };
   }
 
-  await prisma.authSession.updateMany({
-    where: { sessionId, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
+  // No usable refresh token. If the caller still holds a valid access token we
+  // revoke every session they have, so a stale cookie cannot leave one behind.
+  if (input.userId) {
+    await prisma.authSession.updateMany({
+      where: { userId: input.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
 
   return { success: true };
 }

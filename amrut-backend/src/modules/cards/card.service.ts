@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "../../../generated/prisma/client";
+import type { Prisma, PrismaClient } from "../../../generated/prisma/client";
+import { AUDIT_FIELD, change } from "../audit/audit.util";
 import type {
   AssignCardRequest,
   CardAssignmentSummaryResponse,
@@ -55,62 +56,129 @@ function normalizeCard(card: any): CardResponse {
   };
 }
 
-function buildCardWhere(query: CardListQuery) {
-  const where: any = {};
+/**
+ * Hard ceiling so a card list can never become an unbounded response.
+ *
+ * The settings screen filters and pages this set in the browser, so the cap is
+ * set well above any realistic card count rather than at a display page size.
+ */
+const CARD_PAGE_LIMIT = 500;
+
+/**
+ * Searching happens in the database.
+ *
+ * Card numbers are integers so they only match exactly; the text fields live
+ * on the active assignment's customer, which Prisma can filter through the
+ * relation. The previous version fetched every card with its assignment,
+ * customer and assigning user, then filtered in JavaScript.
+ */
+function buildCardWhere(query: CardListQuery): Prisma.CardWhereInput {
+  const where: Prisma.CardWhereInput = {};
 
   if (query.status) {
     where.status = query.status;
   }
 
+  const search = query.search?.trim();
+
+  if (search) {
+    const matches: Prisma.CardWhereInput[] = [
+      {
+        assignments: {
+          some: {
+            unassignedAt: null,
+            customer: { is: { fullName: { contains: search, mode: "insensitive" } } },
+          },
+        },
+      },
+      {
+        assignments: {
+          some: {
+            unassignedAt: null,
+            customer: { is: { mobileNumber: { contains: search } } },
+          },
+        },
+      },
+      {
+        assignments: {
+          some: {
+            unassignedAt: null,
+            assignedBy: { is: { fullName: { contains: search, mode: "insensitive" } } },
+          },
+        },
+      },
+    ];
+
+    const cardNumber = Number(search);
+    if (Number.isSafeInteger(cardNumber) && cardNumber > 0) {
+      matches.push({ cardNumber });
+    }
+
+    where.OR = matches;
+  }
+
   return where;
 }
 
-function matchesSearch(card: CardResponse, search: string) {
-  const haystacks = [
-    String(card.cardNumber),
-    card.currentAssignment?.customer.fullName ?? "",
-    card.currentAssignment?.customer.mobileNumber ?? "",
-    card.currentAssignment?.assignedBy.fullName ?? "",
-  ];
+const CARD_LIST_INCLUDE = {
+  assignments: {
+    where: { unassignedAt: null },
+    orderBy: { assignedAt: "desc" },
+    take: 1,
+    include: { customer: true, assignedBy: true },
+  },
+} satisfies Prisma.CardInclude;
 
-  return haystacks.some((value) => value.toLowerCase().includes(search.toLowerCase()));
+/**
+ * Counted in the database against the *unfiltered* card set so the header
+ * totals stay stable while the user filters or searches. Deriving them from
+ * the visible rows made "Available: 0" appear whenever the assigned filter
+ * was active.
+ */
+async function loadCardSummary(prisma: PrismaClient): Promise<CardSummaryResponse> {
+  const [totalCards, assignedCards, availableCards] = await Promise.all([
+    prisma.card.count(),
+    prisma.card.count({ where: { status: "assigned" } }),
+    prisma.card.count({ where: { status: "available" } }),
+  ]);
+
+  return { totalCards, assignedCards, availableCards };
 }
 
-async function loadCards(app: FastifyInstance, query: CardListQuery) {
+async function loadCards(
+  app: FastifyInstance,
+  query: CardListQuery,
+): Promise<CardListResponse> {
   const prisma = getPrisma(app);
+  const limit = Math.min(query.limit ?? CARD_PAGE_LIMIT, CARD_PAGE_LIMIT);
+  const page = Math.max(1, query.page ?? 1);
+  const where = buildCardWhere(query);
 
-  const cards = await prisma.card.findMany({
-    where: buildCardWhere(query),
-    orderBy: [{ cardNumber: "asc" }],
-    include: {
-      assignments: {
-        where: { unassignedAt: null },
-        orderBy: { assignedAt: "desc" },
-        take: 1,
-        include: {
-          customer: true,
-          assignedBy: true,
-        },
-      },
-    },
-  });
+  const [matchedCards, cards, summary] = await Promise.all([
+    prisma.card.count({ where }),
+    prisma.card.findMany({
+      where,
+      orderBy: [{ cardNumber: "asc" }],
+      skip: (page - 1) * limit,
+      take: limit,
+      include: CARD_LIST_INCLUDE,
+    }),
+    loadCardSummary(prisma),
+  ]);
 
-  let normalized = cards.map(normalizeCard);
+  const totalPages = Math.max(1, Math.ceil(matchedCards / limit));
 
-  if (query.search) {
-    normalized = normalized.filter((card: CardResponse) =>
-      matchesSearch(card, query.search!.trim()),
-    );
-  }
-
-  return normalized;
-}
-
-function buildSummary(items: CardResponse[]): CardSummaryResponse {
   return {
-    totalCards: items.length,
-    assignedCards: items.filter((card) => card.status === "assigned").length,
-    availableCards: items.filter((card) => card.status === "available").length,
+    items: cards.map(normalizeCard),
+    summary,
+    pageInfo: {
+      page,
+      limit,
+      totalItems: matchedCards,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
+    },
   };
 }
 
@@ -118,30 +186,21 @@ export async function getCards(
   app: FastifyInstance,
   query: CardListQuery,
 ): Promise<CardListResponse> {
-  const items = await loadCards(app, query);
-
-  return {
-    items,
-    summary: buildSummary(items),
-  };
+  return loadCards(app, query);
 }
 
-export async function getAssignedCards(app: FastifyInstance): Promise<CardListResponse> {
-  const items = await loadCards(app, { status: "assigned" });
-
-  return {
-    items,
-    summary: buildSummary(items),
-  };
+export async function getAssignedCards(
+  app: FastifyInstance,
+  query: CardListQuery = {},
+): Promise<CardListResponse> {
+  return loadCards(app, { ...query, status: "assigned" });
 }
 
-export async function getAvailableCards(app: FastifyInstance): Promise<CardListResponse> {
-  const items = await loadCards(app, { status: "available" });
-
-  return {
-    items,
-    summary: buildSummary(items),
-  };
+export async function getAvailableCards(
+  app: FastifyInstance,
+  query: CardListQuery = {},
+): Promise<CardListResponse> {
+  return loadCards(app, { ...query, status: "available" });
 }
 
 export async function getCardById(app: FastifyInstance, id: string): Promise<CardResponse> {
@@ -380,7 +439,16 @@ export async function assignCardToCustomer(
   const depositAtAssignment = input.depositAtAssignment ?? 0;
 
   const result = await prisma.$transaction(async (tx: PrismaClient) => {
+    let previousCardNumber: number | null = null;
+
     if (activeAssignmentForCustomer) {
+      const previousCard = await tx.card.findUnique({
+        where: { id: activeAssignmentForCustomer.cardId },
+        select: { cardNumber: true },
+      });
+
+      previousCardNumber = previousCard?.cardNumber ?? null;
+
       await tx.cardAssignment.update({
         where: { id: activeAssignmentForCustomer.id },
         data: {
@@ -394,6 +462,18 @@ export async function assignCardToCustomer(
           status: "available",
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          customerId: input.customerId,
+          type: "card_unassigned",
+          title: `Card ${previousCardNumber ?? ""} unassigned`.replace("Card  ", "Card "),
+          details: [change(AUDIT_FIELD.cardNumber, previousCardNumber ?? "", "None")],
+          performedById: assignedById,
+          relatedEntityType: "cardAssignment",
+          relatedEntityId: activeAssignmentForCustomer.id,
+        },
+      });
     }
 
     await tx.card.update({
@@ -403,7 +483,7 @@ export async function assignCardToCustomer(
       },
     });
 
-    return tx.cardAssignment.create({
+    const assignment = await tx.cardAssignment.create({
       data: {
         cardId,
         customerId: input.customerId,
@@ -417,6 +497,20 @@ export async function assignCardToCustomer(
         assignedBy: true,
       },
     });
+
+    await tx.auditLog.create({
+      data: {
+        customerId: input.customerId,
+        type: "card_assigned",
+        title: `Card ${card.cardNumber} assigned`,
+        details: [change(AUDIT_FIELD.cardNumber, previousCardNumber ?? "None", card.cardNumber)],
+        performedById: assignedById,
+        relatedEntityType: "cardAssignment",
+        relatedEntityId: assignment.id,
+      },
+    });
+
+    return assignment;
   });
 
   return normalizeAssignment(result);
@@ -425,6 +519,7 @@ export async function assignCardToCustomer(
 export async function makeCardAvailable(
   app: FastifyInstance,
   cardId: string,
+  performedById: string,
 ): Promise<CardAssignmentSummaryResponse> {
   const prisma = getPrisma(app);
 
@@ -436,6 +531,7 @@ export async function makeCardAvailable(
     include: {
       customer: true,
       assignedBy: true,
+      card: true,
     },
     orderBy: {
       assignedAt: "desc",
@@ -460,6 +556,18 @@ export async function makeCardAvailable(
       where: { id: cardId },
       data: {
         status: "available",
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        customerId: activeAssignment.customerId,
+        type: "card_unassigned",
+        title: `Card ${activeAssignment.card.cardNumber} released`,
+        details: [change(AUDIT_FIELD.cardNumber, activeAssignment.card.cardNumber, "None")],
+        performedById,
+        relatedEntityType: "cardAssignment",
+        relatedEntityId: activeAssignment.id,
       },
     });
 

@@ -14,6 +14,7 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:backfill-counters": "tsx prisma/backfill-counters.ts",
+    "prisma:migrate-money": "tsx prisma/migrate-money-to-int.ts",
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts"
   },

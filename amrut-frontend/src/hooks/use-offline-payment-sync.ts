@@ -2,9 +2,22 @@ import axios from "axios";
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { recordPayment } from "@/services/bill.service";
+import { getApiErrorMessage } from "@/services/utils/apiConnector";
 import { paymentQueue } from "@/services/offline-payment-queue.service";
 
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 8;
+
+/**
+ * A queued payment is money the shop has already taken. An expired session or
+ * a momentarily unavailable server must never cause it to be discarded, so
+ * those statuses keep the item pending instead of dead-lettering it.
+ */
+const RETRYABLE_STATUSES = new Set([401, 403, 408, 425, 429, 500, 502, 503, 504]);
+
+function isRetryable(status: number | undefined): boolean {
+  if (status === undefined) return true;
+  return RETRYABLE_STATUSES.has(status) || status >= 500;
+}
 const refresh = (client: ReturnType<typeof useQueryClient>) =>
   client
     .invalidateQueries({ queryKey: ["bills"] })
@@ -26,12 +39,7 @@ export function useOfflinePaymentSync() {
         const status = axios.isAxiosError(error)
           ? error.response?.status
           : undefined;
-        const message = axios.isAxiosError(error)
-          ? ((error.response?.data as { message?: string } | undefined)
-              ?.message ?? error.message)
-          : error instanceof Error
-            ? error.message
-            : "Sync failed";
+        const message = getApiErrorMessage(error, "Sync failed");
         if (status === 409)
           paymentQueue.update(item.id, {
             state: "conflict",
@@ -43,11 +51,7 @@ export function useOfflinePaymentSync() {
           paymentQueue.update(item.id, {
             attempts,
             state:
-              attempts >= MAX_ATTEMPTS ||
-              (status != null &&
-                status >= 400 &&
-                status < 500 &&
-                status !== 429)
+              attempts >= MAX_ATTEMPTS || !isRetryable(status)
                 ? "dead-letter"
                 : "pending",
             lastError: message,

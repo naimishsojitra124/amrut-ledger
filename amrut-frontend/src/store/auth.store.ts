@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { authAPI, type AuthUser } from "@/services/auth.service";
-import { tokenStorage } from "@/services/utils/apiConnector";
+import { getApiErrorMessage, tokenStorage } from "@/services/utils/apiConnector";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -15,6 +15,7 @@ interface AuthState {
   login: (user: AuthUser, accessToken: string) => void;
   logout: () => Promise<void>;
   setUser: (user: AuthUser) => void;
+  setToken: (token: string) => void;
   setLoading: (value: boolean) => void;
 }
 
@@ -38,13 +39,17 @@ export const useAuthStore = create<AuthState>()(
         const state = useAuthStore.getState();
         if (state.isLoggingOut) return;
 
-        set({ isLoggingOut: true });
+        set({ isLoggingOut: true, logoutError: null });
         try {
           await authAPI.logout();
-        } catch {
-          // Non-fatal: server may already have invalidated the session
+        } catch (error) {
+          // The endpoint is idempotent, so this only happens when the network
+          // is down. Say so plainly rather than leaving the user guessing.
           set({
-            logoutError: "Server logout failed, session cleared locally.",
+            logoutError: getApiErrorMessage(
+              error,
+              "Could not reach the server. Signed out on this device only.",
+            ),
           });
         } finally {
           tokenStorage.clear();
@@ -59,6 +64,12 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setUser: (user) => set({ user }),
+
+      /**
+       * Called when the API layer silently exchanges the refresh cookie for a
+       * new access token, so the store never holds a stale one.
+       */
+      setToken: (token) => set({ token, isAuthenticated: true }),
 
       setLoading: (isLoading) => set({ isLoading }),
 
@@ -98,6 +109,14 @@ export const useAuthStore = create<AuthState>()(
 
 if (typeof window !== "undefined") {
   window.addEventListener("auth:logout", () => {
-    useAuthStore.getState().logout();
+    void useAuthStore.getState().logout();
+  });
+
+  // Emitted by the axios layer after a silent refresh.
+  window.addEventListener("auth:token-refreshed", (event) => {
+    const detail = (event as CustomEvent<{ accessToken?: string }>).detail;
+    if (detail?.accessToken) {
+      useAuthStore.getState().setToken(detail.accessToken);
+    }
   });
 }

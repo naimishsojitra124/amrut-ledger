@@ -299,12 +299,8 @@ export default function ProductSuggestionTab() {
 
       toast.success("Product suggestion updated");
       setSelectedProductId(updated.id);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to save product suggestion",
-      );
+    } catch {
+      // Already surfaced by the global error handler.
     }
   }
 
@@ -343,10 +339,8 @@ export default function ProductSuggestionTab() {
         orderedIds: next.map((item) => item.id),
       });
       toast.success("Product order updated");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to reorder products",
-      );
+    } catch {
+      // Already surfaced by the global error handler.
     }
   }
 

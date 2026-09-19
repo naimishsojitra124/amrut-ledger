@@ -41,8 +41,13 @@ type GenerateBillPdfOptions = {
   customer: CustomerDetails;
 };
 
+/**
+ * Whole rupees, matching both the stored values and the on-screen figures.
+ * The printed bill and the app used to disagree because this rendered two
+ * decimals while the UI rounded to none.
+ */
 function formatCurrency(value: number): string {
-  return `Rs. ${Number(value || 0).toFixed(2)}`;
+  return `Rs. ${Math.round(Number(value) || 0).toLocaleString("en-IN")}`;
 }
 
 function formatDate(

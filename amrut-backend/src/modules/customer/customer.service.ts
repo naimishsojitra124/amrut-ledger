@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { PaymentMethod, Prisma, PrismaClient } from "../../../generated/prisma/client";
+import type { BillStatus } from "../../../generated/prisma/enums";
 import type {
   CustomerAuditLogItemResponse,
   CustomerAuditLogResponse,
@@ -19,6 +20,15 @@ import type {
 } from "./customer.types";
 import { CardAssignmentSummaryResponse } from "../cards/card.types";
 import { normalizeAssignment } from "../cards/card.service";
+import {
+  AUDIT_FIELD,
+  change,
+  collectChanges,
+  describeMilkType,
+  describeMilkTypeList,
+  formatMoney,
+  moneyChange,
+} from "../audit/audit.util";
 
 type CardAssignmentWithRelations = Prisma.CardAssignmentGetPayload<{
   include: {
@@ -61,11 +71,11 @@ type CustomerAuditLogRecord = Prisma.AuditLogGetPayload<{
 }>;
 
 interface CustomerBillsQuery {
-  page?: number;
-  limit?: number;
-  month?: number;
-  year?: number;
-  status?: any;
+  page?: number | undefined;
+  limit?: number | undefined;
+  month?: number | undefined;
+  year?: number | undefined;
+  status?: BillStatus | undefined;
   search?: string | undefined;
 }
 
@@ -405,12 +415,36 @@ export function buildPageInfo(totalItems: number, page: number, limit: number): 
   };
 }
 
-function serializeChange(field: string, oldValue: unknown, newValue: unknown) {
-  return {
-    field,
-    oldValue: String(oldValue ?? ""),
-    newValue: String(newValue ?? ""),
-  };
+/**
+ * Mobile numbers are optional. A blank string is stored as "no number" rather
+ * than as an empty value so that searching, display and duplicate reporting
+ * all treat "not provided" the same way.
+ */
+function normalizeMobileNumber(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * Several customers may legitimately share a household phone, so the number is
+ * not unique. We still warn about an exact re-use because it is more often a
+ * typo than a genuine shared line.
+ */
+async function findCustomersSharingMobile(
+  prisma: PrismaClient,
+  mobileNumber: string | null,
+  excludeCustomerId: string | null,
+) {
+  if (!mobileNumber) return [];
+
+  return prisma.customer.findMany({
+    where: {
+      mobileNumber,
+      ...(excludeCustomerId ? { id: { not: excludeCustomerId } } : {}),
+    },
+    select: { id: true, fullName: true },
+    take: 5,
+  });
 }
 
 async function writeAuditLog(
@@ -515,10 +549,7 @@ async function closeActiveAssignmentIfAny(
     customerId,
     type: "card_unassigned",
     title: `Card ${activeAssignment.card.cardNumber} unassigned`,
-    details: [
-      serializeChange("cardId", activeAssignment.cardId, ""),
-      serializeChange("cardNumber", activeAssignment.card.cardNumber, ""),
-    ],
+    details: [change(AUDIT_FIELD.cardNumber, activeAssignment.card.cardNumber, "None")],
     performedById,
     relatedEntityType: "cardAssignment",
     relatedEntityId: activeAssignment.id,
@@ -560,6 +591,13 @@ async function assignCardToCustomer(
   }
 
   if (activeAssignmentForCustomer) {
+    // Load the card so the log can name it. `cardId` is a database identifier
+    // and must never reach the audit trail the user reads.
+    const previousCard = await tx.card.findUnique({
+      where: { id: activeAssignmentForCustomer.cardId },
+      select: { cardNumber: true },
+    });
+
     await tx.cardAssignment.update({
       where: { id: activeAssignmentForCustomer.id },
       data: { unassignedAt: assignedAt },
@@ -573,8 +611,8 @@ async function assignCardToCustomer(
     await writeAuditLog(tx, {
       customerId,
       type: "card_unassigned",
-      title: `Card ${activeAssignmentForCustomer.cardId} unassigned`,
-      details: [],
+      title: `Card ${previousCard?.cardNumber ?? ""} unassigned`.replace("Card  ", "Card "),
+      details: [change(AUDIT_FIELD.cardNumber, previousCard?.cardNumber ?? "", "None")],
       performedById: assignedById,
       relatedEntityType: "cardAssignment",
       relatedEntityId: activeAssignmentForCustomer.id,
@@ -601,10 +639,7 @@ async function assignCardToCustomer(
     customerId,
     type: "card_assigned",
     title: `Card ${card.cardNumber} assigned`,
-    details: [
-      serializeChange("cardId", "", card.id),
-      serializeChange("cardNumber", "", card.cardNumber),
-    ],
+    details: [change(AUDIT_FIELD.cardNumber, "None", card.cardNumber)],
     performedById: assignedById,
     relatedEntityType: "cardAssignment",
     relatedEntityId: assignment.id,
@@ -627,23 +662,19 @@ async function buildCustomerListWhere(prisma: PrismaClient, query: CustomerListQ
     ];
 
     if (/^\d+$/.test(search)) {
-      // Card numbers are Ints, so Prisma cannot perform substring matching
-      // against them. Resolve matching card assignments once, then include
-      // those customer IDs in the database-level customer filter.
-      const cards = await prisma.card.findMany({
-        select: { id: true, cardNumber: true },
-      });
-      const matchingCardIds = cards
-        .filter((card) => card.cardNumber.toString().includes(search))
-        .map((card) => card.id);
+      // Card numbers are Ints, so Prisma cannot substring-match them. Matching
+      // on the exact number keeps this to one indexed lookup; the previous
+      // implementation loaded every card in the system on each keystroke.
+      const cardNumber = Number(search);
 
-      if (matchingCardIds.length > 0) {
+      if (Number.isSafeInteger(cardNumber) && cardNumber > 0) {
         const matchingAssignments = await prisma.cardAssignment.findMany({
           where: {
-            cardId: { in: matchingCardIds },
             unassignedAt: null,
+            card: { is: { cardNumber } },
           },
           select: { customerId: true },
+          take: 100,
         });
 
         if (matchingAssignments.length > 0) {
@@ -820,7 +851,9 @@ export async function createCustomer(
 ): Promise<CustomerResponse> {
   const prisma = getPrisma(app);
 
-  if (input.mobileNumber && !/^\d{10}$/.test(input.mobileNumber)) {
+  const mobileNumber = normalizeMobileNumber(input.mobileNumber);
+
+  if (mobileNumber && !/^\d{10}$/.test(mobileNumber)) {
     throw createHttpError(400, "Mobile number must be exactly 10 digits");
   }
 
@@ -845,8 +878,8 @@ export async function createCustomer(
       data: {
         fullName: input.fullName.trim(),
         searchName: getSearchName(input.fullName),
-        mobileNumber: input.mobileNumber?.trim(),
-        address: input.address?.trim(),
+        mobileNumber,
+        address: input.address?.trim() ?? "",
         depositAmount,
         status: "active",
         milkTypes: milkTypes.map((item) => ({
@@ -865,9 +898,24 @@ export async function createCustomer(
       type: "customer_created",
       title: `Customer created: ${customer.fullName}`,
       details: [
-        serializeChange("fullName", "", customer.fullName),
-        serializeChange("mobileNumber", "", customer.mobileNumber),
-        serializeChange("depositAmount", "", depositAmount),
+        change(AUDIT_FIELD.fullName, "", customer.fullName),
+        change(AUDIT_FIELD.mobileNumber, "", customer.mobileNumber ?? "Not provided"),
+        change(AUDIT_FIELD.address, "", customer.address || "Not provided"),
+        change(
+          AUDIT_FIELD.primaryMilkType,
+          "",
+          describeMilkType(milkTypes.find((item) => item.isDefault) ?? null),
+        ),
+        ...(milkTypes.some((item) => !item.isDefault)
+          ? [
+              change(
+                AUDIT_FIELD.otherMilkTypes,
+                "",
+                describeMilkTypeList(milkTypes.filter((item) => !item.isDefault)),
+              ),
+            ]
+          : []),
+        moneyChange(AUDIT_FIELD.depositBalance, 0, depositAmount),
       ],
       performedById,
     });
@@ -886,8 +934,8 @@ export async function createCustomer(
       await writeAuditLog(tx, {
         customerId: customer.id,
         type: "deposit_updated",
-        title: "Deposit initialized",
-        details: [serializeChange("depositAmount", "", depositAmount)],
+        title: `Opening deposit of ${formatMoney(depositAmount)} recorded`,
+        details: [moneyChange(AUDIT_FIELD.depositBalance, 0, depositAmount)],
         performedById,
       });
     }
@@ -944,8 +992,16 @@ export async function updateCustomer(
   if (!existing) throw createHttpError(404, "Customer not found");
 
   const nextFullName = input.fullName?.trim() ?? existing.fullName;
-  const nextMobileNumber = input.mobileNumber?.trim() ?? existing.mobileNumber;
-  const nextAddress = input.address?.trim() ?? existing.address;
+  // `mobileNumber: ""` is an explicit "clear this field", not "leave unchanged".
+  const nextMobileNumber =
+    input.mobileNumber === undefined
+      ? existing.mobileNumber
+      : normalizeMobileNumber(input.mobileNumber);
+  const nextAddress = input.address === undefined ? existing.address : input.address.trim();
+
+  if (nextMobileNumber && !/^\d{10}$/.test(nextMobileNumber)) {
+    throw createHttpError(400, "Mobile number must be exactly 10 digits");
+  }
   const nextDepositAmount = input.depositAmount ?? existing.depositAmount;
   const nextNotes = input.notes ?? existing.notes;
 
@@ -1038,6 +1094,7 @@ export async function updateCustomer(
      * NEW milk type rate lookup.
      */
     const newRateMap = new Map(loaded.map((item) => [item.milkTypeId, item.rate]));
+    const newNameMap = new Map(loaded.map((item) => [item.milkTypeId, item.milkTypeName]));
 
     /**
      * Load OLD milk type data so that the
@@ -1050,6 +1107,7 @@ export async function updateCustomer(
      * OLD milk type rate lookup.
      */
     const oldRateMap = new Map(existingLoaded.map((item) => [item.milkTypeId, item.rate]));
+    const oldNameMap = new Map(existingLoaded.map((item) => [item.milkTypeId, item.milkTypeName]));
 
     /**
      * Resolve primary rates.
@@ -1063,23 +1121,40 @@ export async function updateCustomer(
     /**
      * Resolve other milk type rates.
      */
-    const oldOtherRates = existingOtherMilkTypeIds.map((id) => oldRateMap.get(id));
-
-    const newOtherRates = otherMilkTypeIds.map((id) => newRateMap.get(id));
-
     /**
      * Audit using human-meaningful values
      * instead of Mongo/DB IDs.
      */
-    milkTypeChanges = [
-      serializeChange("primaryMilkTypeRate", oldPrimaryRate ?? "", newPrimaryRate ?? ""),
-
-      serializeChange(
-        "otherMilkTypeRates",
-        JSON.stringify(oldOtherRates),
-        JSON.stringify(newOtherRates),
+    milkTypeChanges = collectChanges([
+      change(
+        AUDIT_FIELD.primaryMilkType,
+        describeMilkType(
+          existingPrimaryMilkTypeId
+            ? {
+                name: oldNameMap.get(existingPrimaryMilkTypeId),
+                rate: oldPrimaryRate,
+              }
+            : null,
+        ),
+        describeMilkType({ name: newNameMap.get(primaryMilkTypeId), rate: newPrimaryRate }),
       ),
-    ];
+
+      change(
+        AUDIT_FIELD.otherMilkTypes,
+        describeMilkTypeList(
+          existingOtherMilkTypeIds.map((id) => ({
+            name: oldNameMap.get(id),
+            rate: oldRateMap.get(id),
+          })),
+        ),
+        describeMilkTypeList(
+          otherMilkTypeIds.map((id) => ({
+            name: newNameMap.get(id),
+            rate: newRateMap.get(id),
+          })),
+        ),
+      ),
+    ]);
   }
 
   const transactionResult = await prisma.$transaction(async (tx: PrismaClient) => {
@@ -1097,16 +1172,16 @@ export async function updateCustomer(
       } as any,
     });
 
-    const changes: { field: string; oldValue: string; newValue: string }[] = [];
-
-    if (nextFullName !== existing.fullName)
-      changes.push(serializeChange("fullName", existing.fullName, nextFullName));
-    if (nextMobileNumber !== existing.mobileNumber)
-      changes.push(serializeChange("mobileNumber", existing.mobileNumber, nextMobileNumber));
-    if (nextAddress !== existing.address)
-      changes.push(serializeChange("address", existing.address, nextAddress));
-    if (nextNotes !== existing.notes)
-      changes.push(serializeChange("notes", existing.notes, nextNotes));
+    const changes = collectChanges([
+      change(AUDIT_FIELD.fullName, existing.fullName, nextFullName),
+      change(
+        AUDIT_FIELD.mobileNumber,
+        existing.mobileNumber ?? "Not provided",
+        nextMobileNumber ?? "Not provided",
+      ),
+      change(AUDIT_FIELD.address, existing.address || "Not provided", nextAddress || "Not provided"),
+      change(AUDIT_FIELD.notes, existing.notes || "None", nextNotes || "None"),
+    ]);
 
     if (milkTypeChanges.length > 0) {
       await writeAuditLog(tx, {
@@ -1152,7 +1227,9 @@ export async function updateCustomer(
             customerId: id,
             type: "card_unassigned",
             title: `Card ${currentAssignment.card.cardNumber} unassigned`,
-            details: [serializeChange("cardNumber", currentAssignment.card.cardNumber, "")],
+            details: [
+              change(AUDIT_FIELD.cardNumber, currentAssignment.card.cardNumber, "None"),
+            ],
             performedById,
             relatedEntityType: "cardAssignment",
             relatedEntityId: currentAssignment.id,
@@ -1187,7 +1264,13 @@ export async function updateCustomer(
           customerId: id,
           type: "card_assigned",
           title: `Card ${targetCard.cardNumber} assigned`,
-          details: [serializeChange("cardNumber", "", targetCard.cardNumber)],
+          details: [
+            change(
+              AUDIT_FIELD.cardNumber,
+              currentAssignment?.card.cardNumber ?? "None",
+              targetCard.cardNumber,
+            ),
+          ],
           performedById,
           relatedEntityType: "cardAssignment",
           relatedEntityId: cardAssignment.id,
@@ -1247,7 +1330,7 @@ export async function archiveCustomer(
         customerId: id,
         type: "card_unassigned",
         title: `Card ${activeAssignment.card.cardNumber} unassigned`,
-        details: [serializeChange("cardNumber", activeAssignment.card.cardNumber, "")],
+        details: [change(AUDIT_FIELD.cardNumber, activeAssignment.card.cardNumber, "None")],
         performedById,
         relatedEntityType: "cardAssignment",
         relatedEntityId: activeAssignment.id,
@@ -1267,8 +1350,8 @@ export async function archiveCustomer(
     await writeAuditLog(tx, {
       customerId: id,
       type: "customer_closed",
-      title: `Customer archived: ${updated.fullName}`,
-      details: [serializeChange("status", "active", "archived")],
+      title: `Customer closed: ${updated.fullName}`,
+      details: [change(AUDIT_FIELD.status, "Active", "Closed")],
       performedById,
     });
 
@@ -1286,8 +1369,8 @@ export async function archiveCustomer(
       await writeAuditLog(tx, {
         customerId: id,
         type: "deposit_updated",
-        title: "Deposit refunded on customer closure",
-        details: [serializeChange("depositAmount", existing.depositAmount, 0)],
+        title: `Deposit of ${formatMoney(existing.depositAmount)} refunded on closure`,
+        details: [moneyChange(AUDIT_FIELD.depositBalance, existing.depositAmount, 0)],
         performedById,
       });
     }
@@ -1312,7 +1395,7 @@ export async function topUpDeposit(
     if (!customer || customer.status !== "active")
       throw createHttpError(404, "Active customer not found");
 
-    const balanceAfter = Number(customer.depositAmount) + input.amount;
+    const balanceAfter = Math.round(Number(customer.depositAmount) + input.amount);
 
     await tx.customer.update({
       where: { id },
@@ -1332,8 +1415,12 @@ export async function topUpDeposit(
     await writeAuditLog(tx, {
       customerId: id,
       type: "deposit_updated",
-      title: "Deposit topped up",
-      details: [serializeChange("depositAmount", customer.depositAmount, balanceAfter)],
+      title: `Deposit topped up by ${formatMoney(input.amount)}`,
+      details: collectChanges([
+        moneyChange(AUDIT_FIELD.depositChange, 0, input.amount),
+        moneyChange(AUDIT_FIELD.depositBalance, customer.depositAmount, balanceAfter),
+        change(AUDIT_FIELD.notes, "", input.notes ?? ""),
+      ]),
       performedById,
       relatedEntityType: "payment",
       relatedEntityId: transaction.id,
@@ -1354,7 +1441,7 @@ export async function refundDeposit(
     if (!customer) throw createHttpError(404, "Customer not found");
     if (input.amount > Number(customer.depositAmount))
       throw createHttpError(400, "Refund cannot exceed the available deposit");
-    const balanceAfter = Number(customer.depositAmount) - input.amount;
+    const balanceAfter = Math.round(Number(customer.depositAmount) - input.amount);
     await tx.customer.update({
       where: { id },
       data: { depositAmount: balanceAfter, updatedById: performedById },
@@ -1372,8 +1459,12 @@ export async function refundDeposit(
     await writeAuditLog(tx, {
       customerId: id,
       type: "deposit_updated",
-      title: "Deposit refunded",
-      details: [serializeChange("depositAmount", customer.depositAmount, balanceAfter)],
+      title: `Deposit refunded: ${formatMoney(input.amount)}`,
+      details: collectChanges([
+        moneyChange(AUDIT_FIELD.depositChange, input.amount, 0),
+        moneyChange(AUDIT_FIELD.depositBalance, customer.depositAmount, balanceAfter),
+        change(AUDIT_FIELD.notes, "", input.notes ?? ""),
+      ]),
       performedById,
       relatedEntityType: "payment",
       relatedEntityId: transaction.id,
@@ -1395,7 +1486,10 @@ export async function getCustomerStatement(app: FastifyInstance, id: string) {
       orderBy: { receivedAt: "asc" },
     }),
     prisma.depositTransaction.findMany({
-      where: { customerId: id },
+      // `bill_applied` movements are already represented by the payment's
+      // `depositUsed`. Including them here credited the same rupees twice and
+      // made the running balance drift away from the bills.
+      where: { customerId: id, type: { not: "bill_applied" } },
       orderBy: { createdAt: "asc" },
     }),
   ]);
@@ -1447,7 +1541,7 @@ export async function getCustomerStatement(app: FastifyInstance, id: string) {
     items: entries.map((entry) => ({
       ...entry,
       date: entry.date.toISOString(),
-      balance: (balance = Math.round((balance + entry.debit - entry.credit) * 100) / 100),
+      balance: (balance = Math.round(balance + entry.debit - entry.credit)),
     })),
   };
 }
@@ -1477,7 +1571,7 @@ export async function restoreCustomer(
       customerId: id,
       type: "customer_reopened",
       title: `Customer restored: ${updated.fullName}`,
-      details: [serializeChange("status", "archived", "active")],
+      details: [change(AUDIT_FIELD.status, "Closed", "Active")],
       performedById,
     });
 
@@ -1660,6 +1754,10 @@ export async function getCustomerBills(
     status: bill.status,
     billVersion: bill.billVersion ?? 1,
     generatedAt: bill.generatedAt.toISOString(),
+    carriedForward:
+      bill.carriedForwardToBillId && bill.carriedForwardAmount > 0
+        ? { amount: bill.carriedForwardAmount, toBillId: bill.carriedForwardToBillId }
+        : null,
   }));
 
   return {
@@ -1678,12 +1776,12 @@ export async function getCustomerPayments(
   app: FastifyInstance,
   id: string,
   query: {
-    page?: number;
-    limit?: number;
-    billId?: string;
-    billMonth?: number;
-    billYear?: number;
-    paymentMethod?: PaymentMethod;
+    page?: number | undefined;
+    limit?: number | undefined;
+    billId?: string | undefined;
+    billMonth?: number | undefined;
+    billYear?: number | undefined;
+    paymentMethod?: PaymentMethod | undefined;
     search?: string | undefined;
   },
 ): Promise<CustomerPaymentListResponse> {
@@ -1712,11 +1810,15 @@ export async function getCustomerPayments(
     where.OR = searchMatches;
   }
 
+  // Reversed receipts stay in the list (staff need to see them) but must not
+  // be counted as money received.
+  const activeWhere: Prisma.PaymentWhereInput = { ...where, reversedAt: null };
+
   const [totalItems, paymentAggregate, billAggregate, outstandingBillCount, nextOutstandingBill] =
     await Promise.all([
       prisma.payment.count({ where }),
       prisma.payment.aggregate({
-        where,
+        where: activeWhere,
         _count: { _all: true },
         _sum: {
           amount: true,

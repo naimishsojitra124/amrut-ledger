@@ -81,7 +81,7 @@ export default function FunctionOrderDetailsContent({
 
       toast.success("Function order updated");
     } catch {
-      toast.error("Unable to update function order. Please try again.");
+      // The failure has already been reported by the global error handler.
     }
   }, [editing, update]);
 

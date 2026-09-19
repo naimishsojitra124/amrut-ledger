@@ -563,10 +563,23 @@ export async function getFunctionOrderReminders(app: FastifyInstance, daysAhead 
 
   end.setUTCDate(end.getUTCDate() + daysAhead);
 
+  /**
+   * Narrow to orders that actually have a delivery in the window before
+   * loading them. Previously every open order was fetched and filtered in
+   * memory on each dashboard load.
+   */
   const orders = await getPrisma(app).functionOrder.findMany({
     where: {
       status: {
         in: ["draft", "confirmed"],
+      },
+      deliveryDays: {
+        some: {
+          deliveryDate: {
+            gte: start,
+            lte: end,
+          },
+        },
       },
     },
 

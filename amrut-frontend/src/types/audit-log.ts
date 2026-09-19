@@ -12,6 +12,7 @@ export type AuditLogType =
   | "entry_deleted"
   | "bill_generated"
   | "payment_added"
+  | "payment_reversed"
   | "note_added";
 
 interface AuditFieldChange {

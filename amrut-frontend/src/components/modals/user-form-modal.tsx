@@ -268,10 +268,8 @@ export default function UserFormModal() {
 
       toast.success("User updated");
       closeModal();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to update user",
-      );
+    } catch {
+      // Already surfaced by the global error handler.
     }
   }
 

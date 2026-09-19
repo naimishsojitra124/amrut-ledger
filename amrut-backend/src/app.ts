@@ -10,6 +10,10 @@ export async function buildApp() {
 
   const app = Fastify({
     bodyLimit: 1_048_576,
+    // Deployed behind a proxy. Without this every request reports the load
+    // balancer's address, which makes per-client rate limiting meaningless and
+    // request logs useless for tracing a device.
+    trustProxy: true,
     logger: isProd
       ? { level: "info" }
       : {

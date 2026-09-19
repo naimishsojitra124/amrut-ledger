@@ -17,8 +17,8 @@ export const createProductSuggestionSchema = z.object({
 
 export const updateProductSuggestionSchema = z
   .object({
-    name: z.string().trim().min(1).max(100),
-    displayOrder: z.number().int().min(0).optional(),
+    name: z.string().trim().min(1).max(100).optional(),
+    displayOrder: z.coerce.number().int().min(0).optional(),
   })
   .refine((value) => value.name !== undefined || value.displayOrder !== undefined, {
     message: "At least one field is required",

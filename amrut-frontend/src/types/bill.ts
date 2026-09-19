@@ -1,4 +1,9 @@
-export type BillStatus = "paid" | "partial" | "unpaid";
+/**
+ * `carried_forward` means the bill's unpaid balance was rolled into a later
+ * bill. Its `outstandingAmount` is zero because the debt now lives on that
+ * newer bill — it is neither settled nor still owed here.
+ */
+export type BillStatus = "paid" | "partial" | "unpaid" | "carried_forward";
 
 export type PaymentMethod = "cash" | "upi";
 
@@ -9,6 +14,11 @@ export interface PageInfo {
   totalPages: number;
   hasNextPage: boolean;
   hasPreviousPage: boolean;
+}
+
+export interface BillCarriedForwardInfo {
+  amount: number;
+  toBillId: string;
 }
 
 export interface BillMilkSummaryResponse {
@@ -82,6 +92,9 @@ export interface BillListItemResponse {
   billVersion: number;
 
   generatedAt: string;
+
+  /** Present when this bill's balance was rolled into a later bill. */
+  carriedForward: BillCarriedForwardInfo | null;
 }
 
 export interface BillResponse extends BillListItemResponse {
@@ -106,6 +119,7 @@ export interface BillSummaryResponse {
   paidBills: number;
   partialBills: number;
   unpaidBills: number;
+  carriedForwardBills: number;
 
   totalMilkLitres: number;
   totalItemsCount: number;
@@ -188,9 +202,13 @@ export interface PaymentListResponse {
   pageInfo: PageInfo;
 }
 
+/** All figures exclude reversed receipts. */
 export interface PaymentSummaryResponse {
   totalPayments: number;
   totalAmount: number;
+
+  /** Portion settled from customer deposits rather than cash or UPI. */
+  depositApplied: number;
 
   cashCount: number;
   cashAmount: number;

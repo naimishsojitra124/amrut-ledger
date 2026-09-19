@@ -50,6 +50,16 @@ export interface BillPaymentSummaryResponse {
   totalAmount: number;
 }
 
+/**
+ * Set when this bill's unpaid balance was rolled into a later bill. The amount
+ * has already been removed from `outstandingAmount`, so it is never counted
+ * twice across a customer's bills.
+ */
+export interface BillCarriedForwardInfo {
+  amount: number;
+  toBillId: string;
+}
+
 export interface BillListItemResponse {
   id: string;
   billNumber: string;
@@ -69,6 +79,7 @@ export interface BillListItemResponse {
   status: BillStatus;
   billVersion: number;
   generatedAt: string;
+  carriedForward: BillCarriedForwardInfo | null;
 }
 
 export interface BillResponse extends BillListItemResponse {
@@ -89,6 +100,7 @@ export interface BillSummaryResponse {
   paidBills: number;
   partialBills: number;
   unpaidBills: number;
+  carriedForwardBills: number;
   totalMilkLitres: number;
   totalItemsCount: number;
   otherItemsTotal: number;
@@ -169,9 +181,11 @@ export interface PaymentListResponse {
   pageInfo: PageInfo;
 }
 
+/** All figures here exclude reversed receipts. */
 export interface PaymentSummaryResponse {
   totalPayments: number;
   totalAmount: number;
+  depositApplied: number;
   cashCount: number;
   cashAmount: number;
   upiCount: number;

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import { useBillPaymentsQuery, useBillQuery } from "@/services/bill.service";
+import type { BillStatus } from "@/types/bill";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -683,11 +684,15 @@ function SummaryRow({
   );
 }
 
-function BillStatusBadge({
-  status,
-}: {
-  status: "paid" | "partial" | "unpaid";
-}) {
+function BillStatusBadge({ status }: { status: BillStatus }) {
+  if (status === "carried_forward") {
+    return (
+      <Badge className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100">
+        Carried Forward
+      </Badge>
+    );
+  }
+
   if (status === "paid") {
     return (
       <Badge className="rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100">
