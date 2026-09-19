@@ -27,11 +27,8 @@ const customerCardSchema = z.object({
 export const createCustomerSchema = z
   .object({
     fullName: z.string().trim().min(1, "Name is required").max(120),
-    mobileNumber: z
-      .string()
-      .trim()
-      .regex(/^\d{10}$/, "Mobile number must be a 10 digit number"),
-    address: z.string().trim().min(1, "Address is required").max(250),
+    mobileNumber: z.string().trim().optional(),
+    address: z.string().trim().max(250).optional(),
     depositAmount: z.coerce.number().int().min(0),
     notes: z.string().trim().max(1000).optional(),
   })

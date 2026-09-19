@@ -71,8 +71,8 @@ export interface CustomerStatsResponse {
 
 export interface CreateCustomerRequest {
   fullName: string;
-  mobileNumber: string;
-  address: string;
+  mobileNumber?: string | undefined;
+  address?: string | undefined;
   depositAmount?: number;
   primaryMilkTypeId: string;
   otherMilkTypeIds?: string[] | undefined;

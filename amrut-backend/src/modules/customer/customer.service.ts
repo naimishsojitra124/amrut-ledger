@@ -828,6 +828,10 @@ export async function createCustomer(
     throw createHttpError(409, "Mobile number already exists");
   }
 
+  if (input.mobileNumber && !/^\d{10}$/.test(input.mobileNumber)) {
+    throw createHttpError(400, "Mobile number must be exactly 10 digits");
+  }
+
   const milkTypesInput = [
     { milkTypeId: input.primaryMilkTypeId, isDefault: true },
     ...((input.otherMilkTypeIds ?? [])
@@ -849,8 +853,8 @@ export async function createCustomer(
       data: {
         fullName: input.fullName.trim(),
         searchName: getSearchName(input.fullName),
-        mobileNumber: input.mobileNumber.trim(),
-        address: input.address.trim(),
+        mobileNumber: input.mobileNumber?.trim(),
+        address: input.address?.trim(),
         depositAmount,
         status: "active",
         milkTypes: milkTypes.map((item) => ({

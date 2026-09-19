@@ -150,10 +150,12 @@ export default function CustomerDetailsContent({
             </Badge>
 
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-neutral-500 sm:text-sm">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <Phone className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
-                <span className="truncate">{customer.mobileNumber}</span>
-              </span>
+              {customer?.mobileNumber && (
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <Phone className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+                  <span className="truncate">{customer?.mobileNumber}</span>
+                </span>
+              )}
 
               <span className="flex items-center gap-1.5">
                 <CalendarDays className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />

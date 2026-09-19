@@ -111,7 +111,7 @@ export async function getMilkTypes(
     prisma.milkType.count({ where }),
     prisma.milkType.findMany({
       where,
-      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
       skip,
       take: limit,
     }),

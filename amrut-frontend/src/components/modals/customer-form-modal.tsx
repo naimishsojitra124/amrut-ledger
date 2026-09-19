@@ -50,10 +50,7 @@ const customerFormSchema = z
   .object({
     fullName: z.string().trim().min(1, "Full name is required"),
 
-    mobileNumber: z
-      .string()
-      .trim()
-      .min(10, "Mobile number must be at least 10 digits"),
+    mobileNumber: z.string().trim().optional(),
 
     address: z.string().trim().optional(),
 
@@ -111,15 +108,11 @@ export default function CustomerFormModal() {
   const customerQuery = useCustomerQuery(mode === "edit" ? customerId : null);
 
   const availableCardsQuery = useAvailableCardsQuery();
-
   const cardNumberingQuery = useCardNumberingQuery();
-
   const createCustomerMutation = useCreateCustomerMutation();
-
   const updateCustomerMutation = useUpdateCustomerMutation();
 
   const milkTypes = milkTypesData?.items ?? [];
-
   const customer = customerQuery.data;
 
   const availableCards: CardOption[] = useMemo(() => {
@@ -185,21 +178,13 @@ export default function CustomerFormModal() {
 
       return {
         fullName: customer.fullName,
-
         mobileNumber: customer.mobileNumber,
-
         address: customer.address,
-
         depositAmount: customer.depositAmount,
-
         notes: customer.notes ?? "",
-
         primaryMilkId: primaryMilk?.milkTypeId ?? milkTypeIds[0] ?? "",
-
         milkTypeIds,
-
         cardId: selectedCardId,
-
         cardNumber: selectedCardNumber,
       };
     }
@@ -207,21 +192,13 @@ export default function CustomerFormModal() {
     // CREATE MODE
     return {
       fullName: "",
-
       mobileNumber: "",
-
       address: "",
-
       depositAmount: 0,
-
       notes: "",
-
       primaryMilkId: "",
-
       milkTypeIds: [],
-
       cardId: useCardSelect ? (availableCards[0]?.id ?? "") : "",
-
       cardNumber: useCardSelect ? undefined : suggestedNextCardNumber,
     };
   }, [
@@ -286,13 +263,9 @@ export default function CustomerFormModal() {
 
   const isSubmitting =
     createCustomerMutation.isPending || updateCustomerMutation.isPending;
-
   const isCustomerLoading = mode === "edit" && customerQuery.isLoading;
-
   const isAvailableCardsLoading = availableCardsQuery.isLoading;
-
   const isCardNumberingLoading = cardNumberingQuery.isLoading;
-
   const isCardDataLoading = isAvailableCardsLoading || isCardNumberingLoading;
 
   /**
@@ -365,7 +338,6 @@ export default function CustomerFormModal() {
 
     return {
       primaryMilkTypeId: values.primaryMilkId,
-
       ...(otherMilkTypeIds.length > 0
         ? {
             otherMilkTypeIds,
@@ -383,14 +355,14 @@ export default function CustomerFormModal() {
       // CREATE CUSTOMER
       if (mode === "create") {
         await createCustomerMutation.mutateAsync({
-          fullName: values.fullName,
-          mobileNumber: values.mobileNumber,
-          address: values.address ?? "",
-          depositAmount: values.depositAmount,
-          primaryMilkTypeId: milkTypePayload.primaryMilkTypeId,
-          otherMilkTypeIds: milkTypePayload.otherMilkTypeIds,
+          fullName: values.fullName ?? "",
+          mobileNumber: values?.mobileNumber ?? "",
+          address: values?.address ?? "",
+          depositAmount: values?.depositAmount ?? 0,
+          primaryMilkTypeId: milkTypePayload.primaryMilkTypeId ?? "",
+          otherMilkTypeIds: milkTypePayload.otherMilkTypeIds ?? [],
           cardNumber,
-          notes: values.notes ?? "",
+          notes: values?.notes ?? "",
         });
 
         closeModal();
@@ -409,19 +381,13 @@ export default function CustomerFormModal() {
         id: customerId,
 
         payload: {
-          fullName: values.fullName,
-
-          mobileNumber: values.mobileNumber,
-
-          address: values.address ?? "",
-
+          fullName: values.fullName ?? customer?.fullName ?? "",
+          mobileNumber: values?.mobileNumber ?? customer?.mobileNumber ?? "",
+          address: values?.address ?? customer?.address ?? "",
           primaryMilkTypeId: milkTypePayload.primaryMilkTypeId,
-
           otherMilkTypeIds: milkTypePayload.otherMilkTypeIds,
-
           cardNumber,
-
-          notes: values.notes ?? "",
+          notes: values?.notes ?? "",
         },
       });
 
@@ -561,7 +527,7 @@ export default function CustomerFormModal() {
               </div>
 
               {/* Address */}
-              <div className="flex flex-col gap-1.5 md:col-span-2">
+              {/* <div className="flex flex-col gap-1.5 md:col-span-2">
                 <label className="text-sm font-medium">Address</label>
 
                 <Input
@@ -574,7 +540,7 @@ export default function CustomerFormModal() {
                     {form.formState.errors.address.message}
                   </p>
                 )}
-              </div>
+              </div> */}
 
               {mode === "create" && (
                 <div className="flex flex-col gap-1.5">
