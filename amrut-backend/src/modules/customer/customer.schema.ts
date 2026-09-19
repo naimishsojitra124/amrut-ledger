@@ -38,6 +38,22 @@ const customerCardSchema = z.object({
   cardNumber: z.coerce.number().int().positive(),
 });
 
+/**
+ * The balance a customer was already carrying when the shop moved onto this
+ * system. `month`/`year` name the period it is attributed to — normally the
+ * month before go-live, so the first real bill carries it forward.
+ */
+export const openingBalanceSchema = z.object({
+  amount: z.coerce
+    .number()
+    .int("Amount must be a whole number of rupees")
+    .positive("Amount must be greater than 0")
+    .max(10_000_000),
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+  notes: z.string().trim().max(500).optional(),
+});
+
 export const createCustomerSchema = z
   .object({
     fullName: z.string().trim().min(1, "Name is required").max(120),
@@ -45,6 +61,8 @@ export const createCustomerSchema = z
     address: z.string().trim().max(250).optional(),
     depositAmount: z.coerce.number().int().min(0),
     notes: z.string().trim().max(1000).optional(),
+    // Optional: only used while migrating existing customers onto the system.
+    openingBalance: openingBalanceSchema.optional(),
   })
   .merge(customerMilkTypeSchema)
   .merge(customerCardSchema)
@@ -100,6 +118,8 @@ const auditLogTypeSchema = z.enum([
   "entry_updated",
   "entry_deleted",
   "bill_generated",
+  "opening_balance_set",
+  "opening_balance_removed",
   "payment_added",
   "payment_reversed",
   "note_added",

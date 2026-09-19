@@ -80,6 +80,12 @@ export interface BillListItemResponse {
   billVersion: number;
   generatedAt: string;
   carriedForward: BillCarriedForwardInfo | null;
+
+  /**
+   * True for a balance brought over from the shop's paper records. It behaves
+   * like any other bill, but has no milk or item lines behind it.
+   */
+  isOpeningBalance: boolean;
 }
 
 export interface BillResponse extends BillListItemResponse {

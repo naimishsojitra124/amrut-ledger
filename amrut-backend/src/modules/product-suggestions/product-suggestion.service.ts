@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client";
+import { TX_OPTIONS } from "@/app/db/transaction";
 import type {
   CreateProductSuggestionRequest,
   ProductSuggestionActiveResponse,
@@ -139,7 +140,7 @@ export async function createProductSuggestion(
         status: "active",
       },
     });
-  });
+  }, TX_OPTIONS);
 
   return normalizeProductSuggestion(productSuggestion);
 }
@@ -267,7 +268,7 @@ export async function updateProductSuggestion(
     return tx.productSuggestion.findUnique({
       where: { id },
     });
-  });
+  }, TX_OPTIONS);
 
   if (!updatedProductSuggestion) {
     throw createHttpError(500, "Failed to update product suggestion");

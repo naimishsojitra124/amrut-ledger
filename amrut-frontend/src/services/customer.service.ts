@@ -12,6 +12,7 @@ import {
   invalidateCustomerDepositChanged,
   invalidateCustomerStatusChanged,
   invalidateCustomerUpdated,
+  invalidateOpeningBalanceChanged,
 } from "./utils/query-invalidation";
 import {
   FINANCIAL_QUERY_BEHAVIOR,
@@ -38,6 +39,8 @@ import {
   type CustomerAuditLogsQuery,
   type CustomerListResponse,
   type CustomerResponse,
+  type OpeningBalance,
+  type OpeningBalanceInput,
 } from "@/types/customer";
 
 function cleanParams(params: Record<string, unknown>) {
@@ -125,6 +128,8 @@ export const customerQueryKeys = {
     ] as const,
   statement: (customerId: string | null) =>
     ["customers", "statement", customerId ?? ""] as const,
+  openingBalance: (customerId: string | null) =>
+    ["customers", "opening-balance", customerId ?? ""] as const,
 };
 
 export async function getCustomerDailyHistory(
@@ -472,3 +477,58 @@ function useDepositMutation(path: "top-up" | "refund") {
 
 export const useTopUpDepositMutation = () => useDepositMutation("top-up");
 export const useRefundDepositMutation = () => useDepositMutation("refund");
+
+/**
+ * The balance a customer was already carrying when the shop moved onto this
+ * system. It is held as a bill, so once set it behaves like any other
+ * receivable — payable, carried forward and counted in every outstanding total.
+ */
+export const useOpeningBalanceQuery = (customerId: string | null) =>
+  useQuery<OpeningBalance | null>({
+    queryKey: customerQueryKeys.openingBalance(customerId),
+    queryFn: async ({ signal }) => {
+      const response = await apiConnector<{ openingBalance: OpeningBalance | null }>(
+        "GET",
+        `/customers/${customerId}/opening-balance`,
+        undefined,
+        undefined,
+        undefined,
+        signal,
+      );
+      return response.data.openingBalance;
+    },
+    enabled: Boolean(customerId),
+    staleTime: QUERY_STALE_TIMES.customerDetail,
+    gcTime: QUERY_GC_TIMES.standard,
+    ...STANDARD_QUERY_BEHAVIOR,
+  });
+
+export const useSetOpeningBalanceMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { customerId: string; payload: OpeningBalanceInput }) =>
+      (
+        await apiConnector<OpeningBalance>(
+          "POST",
+          `/customers/${args.customerId}/opening-balance`,
+          args.payload,
+        )
+      ).data,
+    onSuccess: async (_, variables) => {
+      await invalidateOpeningBalanceChanged(queryClient, variables.customerId);
+    },
+    meta: { errorTitle: "Could not save the opening balance" },
+  });
+};
+
+export const useRemoveOpeningBalanceMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (customerId: string) =>
+      (await apiConnector("DELETE", `/customers/${customerId}/opening-balance`)).data,
+    onSuccess: async (_, customerId) => {
+      await invalidateOpeningBalanceChanged(queryClient, customerId);
+    },
+    meta: { errorTitle: "Could not remove the opening balance" },
+  });
+};

@@ -31,7 +31,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 import {
   Select,
@@ -46,6 +45,28 @@ type CardOption = {
   cardNumber: number;
 };
 
+/**
+ * The period an opening balance is attributed to: the month that just ended.
+ *
+ * Dating it before the current month is what lets the first bill generated on
+ * this system pick it up as a previous due.
+ */
+function previousPeriodLabel(): string {
+  const { month, year } = previousPeriod();
+  return new Date(year, month - 1, 1).toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function previousPeriod(): { month: number; year: number } {
+  const now = new Date();
+  const month = now.getMonth(); // 0-indexed, so this is already "last month"
+  return month === 0
+    ? { month: 12, year: now.getFullYear() - 1 }
+    : { month, year: now.getFullYear() };
+}
+
 const customerFormSchema = z
   .object({
     fullName: z.string().trim().min(1, "Full name is required"),
@@ -58,6 +79,16 @@ const customerFormSchema = z
       .number()
       .finite("Enter a valid deposit amount")
       .min(0, "Deposit cannot be negative"),
+
+    /**
+     * Money this customer already owed before the shop moved onto this system.
+     * Only offered while creating, and only needed during the changeover.
+     */
+    openingOutstanding: z
+      .number()
+      .finite("Enter a valid amount")
+      .min(0, "Outstanding cannot be negative")
+      .optional(),
 
     notes: z.string().optional(),
 
@@ -174,7 +205,7 @@ export default function CustomerFormModal() {
 
       const selectedCardNumber = useCardSelect
         ? undefined
-        : (customer.currentCard?.cardNumber ?? suggestedNextCardNumber);
+        : (currentCard?.cardNumber ?? suggestedNextCardNumber);
 
       return {
         fullName: customer.fullName,
@@ -195,6 +226,7 @@ export default function CustomerFormModal() {
       mobileNumber: "",
       address: "",
       depositAmount: 0,
+      openingOutstanding: 0,
       notes: "",
       primaryMilkId: "",
       milkTypeIds: [],
@@ -354,6 +386,8 @@ export default function CustomerFormModal() {
 
       // CREATE CUSTOMER
       if (mode === "create") {
+        const openingOutstanding = Math.round(values?.openingOutstanding ?? 0);
+
         await createCustomerMutation.mutateAsync({
           fullName: values.fullName ?? "",
           mobileNumber: values?.mobileNumber ?? "",
@@ -363,6 +397,16 @@ export default function CustomerFormModal() {
           otherMilkTypeIds: milkTypePayload.otherMilkTypeIds ?? [],
           cardNumber,
           notes: values?.notes ?? "",
+          // Attributed to the month before the changeover so the first bill
+          // generated on this system carries it forward.
+          ...(openingOutstanding > 0
+            ? {
+                openingBalance: {
+                  amount: openingOutstanding,
+                  ...previousPeriod(),
+                },
+              }
+            : {}),
         });
 
         closeModal();
@@ -491,7 +535,7 @@ export default function CustomerFormModal() {
         </DialogHeader>
 
         <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
-          <ScrollArea className="max-h-[70vh] p-3 overflow-auto">
+          <div className="max-h-[70vh] p-3 overflow-auto space-y-2">
             <div className="grid gap-4 md:grid-cols-2">
               {/* Full Name */}
               <div className="flex flex-col gap-1.5">
@@ -562,6 +606,40 @@ export default function CustomerFormModal() {
                   {form.formState.errors.depositAmount && (
                     <p className="text-xs text-red-600">
                       {form.formState.errors.depositAmount.message}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {mode === "create" && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium">
+                    Previous Outstanding
+                    <span className="ml-1 font-normal text-neutral-500">
+                      (optional)
+                    </span>
+                  </label>
+
+                  <Input
+                    {...form.register("openingOutstanding", {
+                      valueAsNumber: true,
+                    })}
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="0"
+                    inputMode="numeric"
+                  />
+
+                  <p className="text-xs text-neutral-500">
+                    Amount this customer already owes from your paper records.
+                    It is recorded against {previousPeriodLabel()} and will be
+                    carried into their first bill.
+                  </p>
+
+                  {form.formState.errors.openingOutstanding && (
+                    <p className="text-xs text-red-600">
+                      {form.formState.errors.openingOutstanding.message}
                     </p>
                   )}
                 </div>
@@ -792,7 +870,7 @@ export default function CustomerFormModal() {
                 </p>
               )}
             </div>
-          </ScrollArea>
+          </div>
 
           <DialogFooter className="flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
             {/* Actions */}

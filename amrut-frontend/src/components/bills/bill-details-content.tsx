@@ -223,7 +223,10 @@ export default function BillDetailsContent({
           </h2>
         </div>
 
-        <BillStatusBadge status={bill.status} />
+        <BillStatusBadge
+          status={bill.status}
+          isOpeningBalance={bill.isOpeningBalance}
+        />
       </div>
 
       {/* Scrollable Body */}
@@ -684,7 +687,21 @@ function SummaryRow({
   );
 }
 
-function BillStatusBadge({ status }: { status: BillStatus }) {
+function BillStatusBadge({
+  status,
+  isOpeningBalance = false,
+}: {
+  status: BillStatus;
+  isOpeningBalance?: boolean;
+}) {
+  if (isOpeningBalance && status !== "carried_forward") {
+    return (
+      <Badge className="rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100">
+        Opening Balance
+      </Badge>
+    );
+  }
+
   if (status === "carried_forward") {
     return (
       <Badge className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100">

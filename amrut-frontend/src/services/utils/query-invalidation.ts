@@ -10,6 +10,7 @@ const ROOTS = {
   customerPayments: ["customers", "payments"] as const,
   customerAuditLogs: ["customers", "audit-logs"] as const,
   customerStatement: ["customers", "statement"] as const,
+  customerOpeningBalance: ["customers", "opening-balance"] as const,
 
   bills: ["bills"] as const,
   billList: ["bills", "list"] as const,
@@ -67,6 +68,26 @@ export async function invalidateCustomerCreated(queryClient: QueryClient) {
     ROOTS.customerStats,
     ROOTS.availableCards,
     ROOTS.cardNumbering
+  ]);
+}
+
+/**
+ * An opening balance is a receivable, so it moves the customer's outstanding
+ * total, their bill list and every bill-wide aggregate it feeds.
+ */
+export async function invalidateOpeningBalanceChanged(
+  queryClient: QueryClient,
+  customerId: string,
+) {
+  return invalidate(queryClient, [
+    [...ROOTS.customerOpeningBalance, customerId],
+    [...ROOTS.customerDetail, customerId],
+    [...ROOTS.customerBills, customerId],
+    [...ROOTS.customerStatement, customerId],
+    ROOTS.customerList,
+    ROOTS.customerStats,
+    ROOTS.bills,
+    ROOTS.overdueBills,
   ]);
 }
 

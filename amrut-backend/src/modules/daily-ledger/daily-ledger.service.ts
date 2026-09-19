@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "../../../generated/prisma/client";
 import { AUDIT_FIELD, change, describeLedgerEntry } from "../audit/audit.util";
+import { TX_OPTIONS } from "@/app/db/transaction";
 import type {
   AddDailyLedgerEntryRequest,
   CreateDailyLedgerRequest,
@@ -1069,6 +1070,7 @@ export async function addLedgerEntry(
           added: true,
         };
       },
+      TX_OPTIONS,
     );
 
   if (result.added) {

@@ -107,7 +107,15 @@ function getMonthYearLabel(year: number, month: number) {
   });
 }
 
-function getStatusBadge(status: BillStatus) {
+function getStatusBadge(status: BillStatus, isOpeningBalance = false) {
+  if (isOpeningBalance && status !== "carried_forward") {
+    return (
+      <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100">
+        Opening Balance
+      </Badge>
+    );
+  }
+
   switch (status) {
     case "paid":
       return (
@@ -329,7 +337,7 @@ export default function BillsTable({ onViewBill }: BillsTableProps) {
         header: "Status",
         cell: ({ row }) => (
           <div className="flex justify-center">
-            {getStatusBadge(row.original.status)}
+            {getStatusBadge(row.original.status, row.original.isOpeningBalance)}
           </div>
         ),
       },

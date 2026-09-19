@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client";
 import type { BillStatus, PaymentMethod } from "../../../generated/prisma/enums";
+import { TX_OPTIONS } from "@/app/db/transaction";
 import {
   AUDIT_FIELD,
   change,
@@ -115,6 +116,7 @@ function normalizeBillListItem(bill: BillRecord): BillListItemResponse {
     billVersion: bill.billVersion ?? 1,
     generatedAt: bill.generatedAt.toISOString(),
     carriedForward: normalizeCarriedForward(bill),
+    isOpeningBalance: bill.isOpeningBalance ?? false,
   };
 }
 
@@ -661,7 +663,12 @@ export async function generateBill(
   });
 
   if (existingBill) {
-    throw createHttpError(409, `Bill already exists for ${month}/${year}`);
+    throw createHttpError(
+      409,
+      existingBill.isOpeningBalance
+        ? `An opening balance is already recorded for ${formatBillPeriod(month, year)}. Generate this bill for a later month.`
+        : `Bill already exists for ${formatBillPeriod(month, year)}`,
+    );
   }
 
   const customer = await prisma.customer.findUnique({
@@ -933,7 +940,7 @@ export async function generateBill(
     });
 
     return bill;
-  });
+  }, TX_OPTIONS);
 
   return getBillById(app, createdBill.id);
 }
@@ -1098,7 +1105,7 @@ export async function recordPayment(
     }
 
     return createdPayment;
-  });
+  }, TX_OPTIONS);
 
   return normalizePayment(payment);
 }
@@ -1182,6 +1189,6 @@ export async function reversePayment(app: FastifyInstance, paymentId: string, re
     });
 
     return reversed;
-  });
+  }, TX_OPTIONS);
   return normalizePayment(payment);
 }

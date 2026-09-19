@@ -6,24 +6,32 @@ import { registerRoutes } from "./routes/index.js";
 import { env } from "./config/env.js";
 
 export async function buildApp() {
-  const isProd = env.nodeEnv === "production";
-
   const app = Fastify({
     bodyLimit: 1_048_576,
     // Deployed behind a proxy. Without this every request reports the load
     // balancer's address, which makes per-client rate limiting meaningless and
     // request logs useless for tracing a device.
     trustProxy: true,
-    logger: isProd
-      ? { level: "info" }
-      : {
-          level: "debug",
-          transport: {
-            target: "pino-pretty",
-            options: { colorize: true, translateTime: "SYS:standard" },
-          },
-        },
+    logger: {
+      level: env.logLevel,
+      ...(env.logPretty
+        ? {
+            transport: {
+              target: "pino-pretty",
+              options: { colorize: true, translateTime: "SYS:standard" },
+            },
+          }
+        : {}),
+    },
   });
+
+  if (env.nodeEnv !== "production") {
+    app.log.warn(
+      { nodeEnv: env.nodeEnv },
+      "NODE_ENV is not \"production\". Secure cookies and CORS are not being enforced, " +
+        "and debug logging is enabled. Set NODE_ENV=production on deployed environments.",
+    );
+  }
 
   // Reject Mongo operator/prototype keys before they reach application queries.
   app.addHook("preValidation", async (request) => {
@@ -45,8 +53,10 @@ export async function buildApp() {
   });
   app.addHook("onResponse", async (request, reply) => {
     const deviceId = request.headers["x-device-id"];
+    // Debug, not info: this fires on every single request, and at info level it
+    // doubled the log volume the server had to write while serving traffic.
     if (deviceId)
-      request.log.info(
+      request.log.debug(
         {
           deviceId,
           method: request.method,

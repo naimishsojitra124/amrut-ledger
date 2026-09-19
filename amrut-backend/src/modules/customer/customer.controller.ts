@@ -11,6 +11,7 @@ import {
   depositTransactionSchema,
   customerBillsQuerySchema,
   customerPaymentsQuerySchema,
+  openingBalanceSchema,
 } from "./customer.schema";
 import {
   archiveCustomer,
@@ -30,6 +31,9 @@ import {
   topUpDeposit,
   refundDeposit,
   getCustomerStatement,
+  setOpeningBalance,
+  removeOpeningBalance,
+  getOpeningBalance,
 } from "./customer.service";
 
 function getCurrentUserId(request: FastifyRequest) {
@@ -54,6 +58,24 @@ export async function refundDepositHandler(request: FastifyRequest, reply: Fasti
   return reply
     .status(201)
     .send(await refundDeposit(request.server, id, body, getCurrentUserId(request)));
+}
+
+export async function getOpeningBalanceHandler(request: FastifyRequest, reply: FastifyReply) {
+  const { id } = customerIdParamSchema.parse(request.params);
+  return reply.send({ openingBalance: await getOpeningBalance(request.server, id) });
+}
+
+export async function setOpeningBalanceHandler(request: FastifyRequest, reply: FastifyReply) {
+  const { id } = customerIdParamSchema.parse(request.params);
+  const body = openingBalanceSchema.parse(request.body);
+  return reply
+    .status(201)
+    .send(await setOpeningBalance(request.server, id, body, getCurrentUserId(request)));
+}
+
+export async function removeOpeningBalanceHandler(request: FastifyRequest, reply: FastifyReply) {
+  const { id } = customerIdParamSchema.parse(request.params);
+  return reply.send(await removeOpeningBalance(request.server, id, getCurrentUserId(request)));
 }
 
 export async function getCustomerStatementHandler(request: FastifyRequest, reply: FastifyReply) {

@@ -217,6 +217,8 @@ export interface CustomerBillItemResponse {
   status: BillStatus;
   generatedAt: string;
   generatedBy: string;
+  /** True for a balance brought over from the shop's paper records. */
+  isOpeningBalance?: boolean;
 }
 export interface CustomerBillSummaryResponse {
   totalBills: number;
@@ -334,6 +336,33 @@ export interface CustomerCardAssignmentSummaryResponse {
 export interface CustomerCardHistoryResponse {
   items: CustomerCardAssignmentResponse[];
 }
+/**
+ * Money a customer already owed before the shop moved onto this system.
+ *
+ * It is stored as a bill, so it is payable, carried forward and counted like
+ * any other receivable — it simply has no milk or item lines behind it.
+ */
+export interface OpeningBalanceInput {
+  amount: number;
+  month: number;
+  year: number;
+  notes?: string;
+}
+
+export interface OpeningBalance {
+  id: string;
+  billNumber: string;
+  month: number;
+  year: number;
+  amount: number;
+  totalPaid: number;
+  outstandingAmount: number;
+  status: string;
+  notes: string;
+  recordedAt: string;
+  carriedForwardToBillId: string | null;
+}
+
 export interface CreateCustomerRequest {
   fullName: string;
   mobileNumber?: string | undefined;
@@ -343,6 +372,8 @@ export interface CreateCustomerRequest {
   otherMilkTypeIds?: string[];
   cardNumber: number;
   notes?: string;
+  /** Only used while migrating existing customers onto the system. */
+  openingBalance?: OpeningBalanceInput;
 }
 export interface UpdateCustomerRequest {
   fullName: string;

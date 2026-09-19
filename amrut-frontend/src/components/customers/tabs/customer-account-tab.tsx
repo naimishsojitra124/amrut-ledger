@@ -9,6 +9,7 @@ import {
   useTopUpDepositMutation,
 } from "@/services/customer.service";
 import { formatCurrency } from "@/utils/format-currency";
+import OpeningBalanceCard from "@/components/customers/opening-balance-card";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB");
 
@@ -88,6 +89,8 @@ export default function CustomerAccountTab({
 
   return (
     <div className="space-y-4">
+      <OpeningBalanceCard customerId={customerId} />
+
       <div className="space-y-4 rounded-xl border bg-slate-50 p-3 sm:p-4">
         <div>
           <p className="text-sm text-slate-500">Available deposit</p>

@@ -78,6 +78,34 @@ export interface CreateCustomerRequest {
   otherMilkTypeIds?: string[] | undefined;
   cardNumber?: number;
   notes?: string | undefined;
+  /** Balance already owed from before this system was in use. */
+  openingBalance?: OpeningBalanceInput | undefined;
+}
+
+/**
+ * The balance a customer was already carrying before the shop moved onto this
+ * system. Stored as a bill so that payments, carry-forward and every
+ * outstanding total treat it like any other receivable.
+ */
+export interface OpeningBalanceInput {
+  amount: number;
+  month: number;
+  year: number;
+  notes?: string | undefined;
+}
+
+export interface OpeningBalanceResponse {
+  id: string;
+  billNumber: string;
+  month: number;
+  year: number;
+  amount: number;
+  totalPaid: number;
+  outstandingAmount: number;
+  status: string;
+  notes: string;
+  recordedAt: string;
+  carriedForwardToBillId: string | null;
 }
 
 export interface UpdateCustomerRequest {

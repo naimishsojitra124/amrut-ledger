@@ -26,9 +26,11 @@ import {
   collectChanges,
   describeMilkType,
   describeMilkTypeList,
+  formatBillPeriod,
   formatMoney,
   moneyChange,
 } from "../audit/audit.util";
+import { TX_OPTIONS } from "@/app/db/transaction";
 
 type CardAssignmentWithRelations = Prisma.CardAssignmentGetPayload<{
   include: {
@@ -148,6 +150,47 @@ function createHttpError(statusCode: number, message: string) {
 
 function getPrisma(app: FastifyInstance) {
   return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
+}
+
+/**
+ * Audit rows are collected while a transaction runs and written in one go.
+ *
+ * `create` round-trips twice (insert, then read the row back); `createMany`
+ * does neither, so batching four audit writes saves eight round trips.
+ */
+type PendingAuditLog = {
+  customerId: string;
+  type: any;
+  title: string;
+  details: { field: string; oldValue: string; newValue: string }[];
+  performedById: string;
+  relatedEntityType?: any;
+  relatedEntityId?: string | null;
+};
+
+function makeAuditCollector() {
+  const entries: PendingAuditLog[] = [];
+
+  return {
+    add(entry: PendingAuditLog) {
+      entries.push(entry);
+    },
+    async flush(tx: PrismaClient) {
+      if (entries.length === 0) return;
+
+      await tx.auditLog.createMany({
+        data: entries.map((entry) => ({
+          customerId: entry.customerId,
+          type: entry.type,
+          title: entry.title,
+          details: entry.details,
+          performedById: entry.performedById,
+          relatedEntityType: entry.relatedEntityType ?? null,
+          relatedEntityId: entry.relatedEntityId ?? null,
+        })) as any,
+      });
+    },
+  };
 }
 
 function getSearchName(fullName: string) {
@@ -844,6 +887,77 @@ export async function getCustomerStats(app: FastifyInstance): Promise<CustomerSt
   };
 }
 
+/** "OPEN-08-2026-47" — distinct from the "BILL-..." series at a glance. */
+export function getOpeningBalanceBillNumber(month: number, year: number, cardNumber: number) {
+  return `OPEN-${String(month).padStart(2, "0")}-${year}-${cardNumber}`;
+}
+
+/** Last day of the given month, in UTC, matching how bill dates are stored. */
+function endOfMonth(month: number, year: number) {
+  return new Date(Date.UTC(year, month, 0));
+}
+
+function dueDateFor(month: number, year: number) {
+  return new Date(Date.UTC(year, month, 10));
+}
+
+/**
+ * Finds, or creates, the Card row a new customer should be given.
+ *
+ * Deliberately outside the transaction: a Card is just a number and a status,
+ * so one created for a request that later fails is harmless (it stays
+ * available), and keeping this out of the transaction is a large part of what
+ * brought customer creation back under the transaction budget.
+ *
+ * Whether the card is actually free is re-checked inside the transaction —
+ * see `assertCardIsFree`.
+ */
+async function resolveCardForNewCustomer(
+  prisma: PrismaClient,
+  inputCardNumber: number | undefined,
+) {
+  if (inputCardNumber !== undefined) {
+    const existing = await prisma.card.findUnique({
+      where: { cardNumber: inputCardNumber },
+    });
+
+    return (
+      existing ??
+      (await prisma.card.create({
+        data: { cardNumber: inputCardNumber, status: "available" },
+      }))
+    );
+  }
+
+  const available = await prisma.card.findFirst({
+    where: { status: "available" },
+    orderBy: { cardNumber: "asc" },
+  });
+
+  if (available) return available;
+
+  return prisma.card.create({
+    data: { cardNumber: await getNextCardNumber(prisma), status: "available" },
+  });
+}
+
+/**
+ * Guards against two customers being created against the same card at once.
+ *
+ * Runs inside the transaction, so the check and the assignment that follows it
+ * cannot be interleaved with another request picking the same free card.
+ */
+async function assertCardIsFree(tx: PrismaClient, cardId: string, cardNumber: number) {
+  const activeAssignment = await tx.cardAssignment.findFirst({
+    where: { cardId, unassignedAt: null },
+    select: { id: true },
+  });
+
+  if (activeAssignment) {
+    throw createHttpError(409, `Card ${cardNumber} is already assigned to another customer`);
+  }
+}
+
 export async function createCustomer(
   app: FastifyInstance,
   input: CreateCustomerRequest,
@@ -867,13 +981,31 @@ export async function createCustomer(
       })) as { milkTypeId: string; isDefault: boolean }[]),
   ];
 
-  const milkTypes = await loadMilkTypeMap(prisma, milkTypesInput);
+  const openingBalance = input.openingBalance;
+
+  if (openingBalance) {
+    assertOpeningBalancePeriod(openingBalance.month, openingBalance.year);
+  }
+
+  /**
+   * Everything that only reads, or that is safe to leave behind on failure,
+   * happens before the transaction opens. What remains inside is the smallest
+   * set of writes that must succeed or fail together.
+   */
+  const [milkTypes, card] = await Promise.all([
+    loadMilkTypeMap(prisma, milkTypesInput),
+    resolveCardForNewCustomer(prisma, input.cardNumber),
+  ]);
 
   const createdAt = new Date();
   const depositAmount = input.depositAmount ?? 0;
   const notes = input.notes ?? "";
 
   const result = await prisma.$transaction(async (tx: PrismaClient) => {
+    const audit = makeAuditCollector();
+
+    await assertCardIsFree(tx, card.id, card.cardNumber);
+
     const customer = await tx.customer.create({
       data: {
         fullName: input.fullName.trim(),
@@ -893,7 +1025,7 @@ export async function createCustomer(
       } as any,
     });
 
-    await writeAuditLog(tx, {
+    audit.add({
       customerId: customer.id,
       type: "customer_created",
       title: `Customer created: ${customer.fullName}`,
@@ -920,18 +1052,46 @@ export async function createCustomer(
       performedById,
     });
 
+    // `updateMany` does not read the row back, so it costs one round trip
+    // instead of two. Nothing here needs the updated card.
+    await tx.card.updateMany({ where: { id: card.id }, data: { status: "assigned" } });
+
+    const assignment = await tx.cardAssignment.create({
+      data: {
+        cardId: card.id,
+        customerId: customer.id,
+        assignedAt: createdAt,
+        unassignedAt: null,
+        depositAtAssignment: depositAmount,
+        assignedById: performedById,
+      },
+    });
+
+    audit.add({
+      customerId: customer.id,
+      type: "card_assigned",
+      title: `Card ${card.cardNumber} assigned`,
+      details: [change(AUDIT_FIELD.cardNumber, "None", card.cardNumber)],
+      performedById,
+      relatedEntityType: "cardAssignment",
+      relatedEntityId: assignment.id,
+    });
+
     if (depositAmount > 0) {
-      await tx.depositTransaction.create({
-        data: {
-          customerId: customer.id,
-          type: "top_up",
-          amount: depositAmount,
-          balanceAfter: depositAmount,
-          reference: "Customer opening deposit",
-          performedById,
-        },
+      await tx.depositTransaction.createMany({
+        data: [
+          {
+            customerId: customer.id,
+            type: "top_up",
+            amount: depositAmount,
+            balanceAfter: depositAmount,
+            reference: "Customer opening deposit",
+            performedById,
+          },
+        ],
       });
-      await writeAuditLog(tx, {
+
+      audit.add({
         customerId: customer.id,
         type: "deposit_updated",
         title: `Opening deposit of ${formatMoney(depositAmount)} recorded`,
@@ -940,28 +1100,287 @@ export async function createCustomer(
       });
     }
 
-    const cardResult = await assignCardToCustomer(
-      tx,
-      customer.id,
-      input.cardNumber,
-      performedById,
-      createdAt,
-      depositAmount,
-    );
-
-    if (cardResult.card) {
-      await tx.customer.update({
-        where: { id: customer.id },
-        data: {
-          depositAmount,
-        },
+    if (openingBalance && openingBalance.amount > 0) {
+      const bill = await tx.bill.create({
+        data: buildOpeningBalanceBill({
+          customerId: customer.id,
+          cardAssignmentId: assignment.id,
+          cardNumber: card.cardNumber,
+          amount: openingBalance.amount,
+          month: openingBalance.month,
+          year: openingBalance.year,
+          notes: openingBalance.notes ?? "",
+          performedById,
+        }),
       });
+
+      audit.add(
+        openingBalanceAuditEntry(customer.id, bill, openingBalance.amount, performedById),
+      );
     }
 
+    await audit.flush(tx);
+
     return customer;
-  });
+  }, TX_OPTIONS);
 
   return normalizeCustomer(prisma, result);
+}
+
+/**
+ * The shop is moving onto this system mid-stream, so customers arrive already
+ * owing money from months that were only ever recorded on paper.
+ *
+ * That balance is stored as an ordinary bill flagged `isOpeningBalance`. Doing
+ * it this way means payments, carry-forward, statements, ageing and every
+ * outstanding total work on it with no special cases — the only thing it lacks
+ * is the milk and item lines, because that history does not exist here.
+ */
+export function buildOpeningBalanceBill(input: {
+  customerId: string;
+  cardAssignmentId: string;
+  cardNumber: number;
+  amount: number;
+  month: number;
+  year: number;
+  notes: string;
+  performedById: string;
+}) {
+  const amount = Math.round(input.amount);
+
+  return {
+    billNumber: getOpeningBalanceBillNumber(input.month, input.year, input.cardNumber),
+    customerId: input.customerId,
+    cardAssignmentId: input.cardAssignmentId,
+    month: input.month,
+    year: input.year,
+    billDate: endOfMonth(input.month, input.year),
+    dueDate: dueDateFor(input.month, input.year),
+
+    totalMilkLitres: 0,
+    milkSummary: [],
+    totalItemsCount: 0,
+    otherItems: [],
+    otherItemsTotal: 0,
+
+    // Recorded as a previous due rather than as current charges: nothing was
+    // sold on this bill, it is a balance brought forward from paper records.
+    previousDue: amount,
+    grandTotal: amount,
+    totalPaid: 0,
+    outstandingAmount: amount,
+    status: "unpaid" as const,
+
+    isOpeningBalance: true,
+    notes: input.notes,
+    billVersion: 1,
+    generatedById: input.performedById,
+  };
+}
+
+function openingBalanceAuditEntry(
+  customerId: string,
+  bill: { id: string; billNumber: string; month: number; year: number },
+  amount: number,
+  performedById: string,
+): PendingAuditLog {
+  return {
+    customerId,
+    type: "opening_balance_set",
+    title: `Opening outstanding of ${formatMoney(amount)} recorded`,
+    details: [
+      change(AUDIT_FIELD.billNumber, "", bill.billNumber),
+      change(AUDIT_FIELD.billPeriod, "", formatBillPeriod(bill.month, bill.year)),
+      moneyChange(AUDIT_FIELD.outstanding, 0, amount),
+    ],
+    performedById,
+    relatedEntityType: "bill",
+    relatedEntityId: bill.id,
+  };
+}
+
+/**
+ * An opening balance describes a period that has already finished. Allowing a
+ * future month would let it sort ahead of real bills and never be carried
+ * forward into them.
+ */
+export function assertOpeningBalancePeriod(month: number, year: number) {
+  const now = new Date();
+  const currentMonth = now.getUTCMonth() + 1;
+  const currentYear = now.getUTCFullYear();
+
+  if (year > currentYear || (year === currentYear && month > currentMonth)) {
+    throw createHttpError(400, "An opening balance cannot be dated in the future");
+  }
+}
+
+/**
+ * Records the balance a customer was already carrying, for customers that were
+ * added before this was captured.
+ */
+export async function setOpeningBalance(
+  app: FastifyInstance,
+  customerId: string,
+  input: { amount: number; month: number; year: number; notes?: string | undefined },
+  performedById: string,
+) {
+  const prisma = getPrisma(app);
+
+  assertOpeningBalancePeriod(input.month, input.year);
+
+  const [customer, existingOpening, assignment] = await Promise.all([
+    prisma.customer.findUnique({ where: { id: customerId } }),
+    prisma.bill.findFirst({ where: { customerId, isOpeningBalance: true } }),
+    prisma.cardAssignment.findFirst({
+      where: { customerId, unassignedAt: null },
+      orderBy: { assignedAt: "desc" },
+      include: { card: { select: { cardNumber: true } } },
+    }),
+  ]);
+
+  if (!customer) throw createHttpError(404, "Customer not found");
+  if (customer.status !== "active")
+    throw createHttpError(409, "An opening balance can only be set for an active customer");
+
+  if (existingOpening) {
+    throw createHttpError(
+      409,
+      `This customer already has an opening balance (${existingOpening.billNumber}). Remove it first if it needs correcting.`,
+    );
+  }
+
+  if (!assignment) {
+    throw createHttpError(409, "Assign a card to this customer before setting an opening balance");
+  }
+
+  // A bill already exists for this period, so an opening balance would either
+  // collide on the unique key or silently sit alongside real charges.
+  const clashingBill = await prisma.bill.findUnique({
+    where: {
+      customerId_month_year: { customerId, month: input.month, year: input.year },
+    },
+    select: { billNumber: true },
+  });
+
+  if (clashingBill) {
+    throw createHttpError(
+      409,
+      `A bill already exists for that period (${clashingBill.billNumber}). Choose an earlier month.`,
+    );
+  }
+
+  return prisma.$transaction(async (tx: PrismaClient) => {
+    const bill = await tx.bill.create({
+      data: buildOpeningBalanceBill({
+        customerId,
+        cardAssignmentId: assignment.id,
+        cardNumber: assignment.card.cardNumber,
+        amount: input.amount,
+        month: input.month,
+        year: input.year,
+        notes: input.notes ?? "",
+        performedById,
+      }),
+    });
+
+    const audit = makeAuditCollector();
+    audit.add(openingBalanceAuditEntry(customerId, bill, Math.round(input.amount), performedById));
+    await audit.flush(tx);
+
+    return normalizeOpeningBalance(bill);
+  }, TX_OPTIONS);
+}
+
+/**
+ * Removes an opening balance that was entered wrongly.
+ *
+ * Only possible while it is untouched: once money has been received against it,
+ * or its balance has been rolled into a later bill, deleting it would leave
+ * those records pointing at nothing.
+ */
+export async function removeOpeningBalance(
+  app: FastifyInstance,
+  customerId: string,
+  performedById: string,
+) {
+  const prisma = getPrisma(app);
+
+  const opening = await prisma.bill.findFirst({
+    where: { customerId, isOpeningBalance: true },
+  });
+
+  if (!opening) throw createHttpError(404, "This customer does not have an opening balance");
+
+  if (opening.status === "carried_forward" || opening.carriedForwardToBillId) {
+    throw createHttpError(
+      409,
+      "This opening balance has already been carried into a later bill and can no longer be removed",
+    );
+  }
+
+  const paymentCount = await prisma.payment.count({ where: { billId: opening.id } });
+
+  if (paymentCount > 0) {
+    throw createHttpError(
+      409,
+      "Payments have been recorded against this opening balance. Reverse them before removing it.",
+    );
+  }
+
+  await prisma.$transaction(async (tx: PrismaClient) => {
+    await tx.bill.delete({ where: { id: opening.id } });
+
+    const audit = makeAuditCollector();
+    audit.add({
+      customerId,
+      type: "opening_balance_removed",
+      title: `Opening outstanding of ${formatMoney(opening.outstandingAmount)} removed`,
+      details: [
+        change(AUDIT_FIELD.billNumber, opening.billNumber, ""),
+        moneyChange(AUDIT_FIELD.outstanding, opening.outstandingAmount, 0),
+      ],
+      performedById,
+    });
+    await audit.flush(tx);
+  }, TX_OPTIONS);
+
+  return { success: true } as const;
+}
+
+export async function getOpeningBalance(app: FastifyInstance, customerId: string) {
+  const opening = await getPrisma(app).bill.findFirst({
+    where: { customerId, isOpeningBalance: true },
+  });
+
+  return opening ? normalizeOpeningBalance(opening) : null;
+}
+
+function normalizeOpeningBalance(bill: {
+  id: string;
+  billNumber: string;
+  month: number;
+  year: number;
+  grandTotal: number;
+  totalPaid: number;
+  outstandingAmount: number;
+  status: string;
+  notes: string | null;
+  generatedAt: Date;
+  carriedForwardToBillId: string | null;
+}) {
+  return {
+    id: bill.id,
+    billNumber: bill.billNumber,
+    month: bill.month,
+    year: bill.year,
+    amount: bill.grandTotal,
+    totalPaid: bill.totalPaid,
+    outstandingAmount: bill.outstandingAmount,
+    status: bill.status,
+    notes: bill.notes ?? "",
+    recordedAt: bill.generatedAt.toISOString(),
+    carriedForwardToBillId: bill.carriedForwardToBillId,
+  };
 }
 
 function formatMilkTypeForAudit(
@@ -1279,7 +1698,7 @@ export async function updateCustomer(
     }
 
     return updatedCustomer;
-  });
+  }, TX_OPTIONS);
 
   return normalizeCustomer(prisma, transactionResult);
 }
@@ -1376,7 +1795,7 @@ export async function archiveCustomer(
     }
 
     return updated;
-  });
+  }, TX_OPTIONS);
 
   return normalizeCustomer(prisma, result);
 }
@@ -1426,7 +1845,7 @@ export async function topUpDeposit(
       relatedEntityId: transaction.id,
     });
     return transaction;
-  });
+  }, TX_OPTIONS);
 }
 
 export async function refundDeposit(
@@ -1470,7 +1889,7 @@ export async function refundDeposit(
       relatedEntityId: transaction.id,
     });
     return transaction;
-  });
+  }, TX_OPTIONS);
 }
 
 export async function getCustomerStatement(app: FastifyInstance, id: string) {
@@ -1576,7 +1995,7 @@ export async function restoreCustomer(
     });
 
     return updated;
-  });
+  }, TX_OPTIONS);
 
   return normalizeCustomer(prisma, result);
 }
@@ -1758,6 +2177,7 @@ export async function getCustomerBills(
       bill.carriedForwardToBillId && bill.carriedForwardAmount > 0
         ? { amount: bill.carriedForwardAmount, toBillId: bill.carriedForwardToBillId }
         : null,
+    isOpeningBalance: bill.isOpeningBalance ?? false,
   }));
 
   return {

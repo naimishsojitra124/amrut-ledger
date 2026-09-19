@@ -95,6 +95,13 @@ export interface BillListItemResponse {
 
   /** Present when this bill's balance was rolled into a later bill. */
   carriedForward: BillCarriedForwardInfo | null;
+
+  /**
+   * True for a balance brought over from the shop's paper records when it
+   * moved onto this system. Payable and carried forward like any other bill,
+   * but with no milk or item lines behind it.
+   */
+  isOpeningBalance: boolean;
 }
 
 export interface BillResponse extends BillListItemResponse {

@@ -60,6 +60,28 @@ const DATETIME_FORMATTER = new Intl.DateTimeFormat("en-IN", {
 });
 
 function getStatusContent(bill: CustomerBillItemResponse) {
+  // An opening balance is a receivable brought over from paper. Labelling it
+  // makes clear why it has no milk or item lines.
+  if (bill.isOpeningBalance && bill.status !== "carried_forward") {
+    return (
+      <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-start sm:gap-1">
+        <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100">
+          Opening Balance
+        </Badge>
+
+        <span
+          className={
+            bill.outstandingAmount > 0 ? "text-xs text-red-500" : "text-xs text-neutral-500"
+          }
+        >
+          {bill.outstandingAmount > 0
+            ? `Due ${formatCurrency(bill.outstandingAmount)}`
+            : "Settled"}
+        </span>
+      </div>
+    );
+  }
+
   switch (bill.status as BillStatus) {
     case "paid":
       return (

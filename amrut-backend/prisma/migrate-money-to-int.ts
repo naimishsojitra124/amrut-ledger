@@ -16,7 +16,7 @@ import type { Db, Document } from "mongodb";
  *   2. Drops the unique index on `customers.mobileNumber`. Numbers are now
  *      optional and may legitimately repeat across a household, and the unique
  *      index also meant only one customer could exist without a number at all.
- *   3. Backfills the carry-forward fields added to `bills`.
+ *   3. Backfills the carry-forward and opening-balance fields on `bills`.
  *
  * It is idempotent — running it twice is harmless.
  *
@@ -165,23 +165,33 @@ async function normalizeBlankMobileNumbers(db: Db) {
   console.log(`  customers: ${result.modifiedCount} blank mobile number(s) cleared`);
 }
 
-async function backfillCarryForwardFields(db: Db) {
+async function backfillBillFields(db: Db) {
+  const missingCarryForward = { carriedForwardAmount: { $exists: false } };
+  const missingOpeningFlag = { isOpeningBalance: { $exists: false } };
+
   if (DRY_RUN) {
-    const count = await db
-      .collection("bills")
-      .countDocuments({ carriedForwardAmount: { $exists: false } });
-    console.log(`  [dry-run] would backfill carry-forward fields on ${count} bill(s)`);
+    const [carry, opening] = await Promise.all([
+      db.collection("bills").countDocuments(missingCarryForward),
+      db.collection("bills").countDocuments(missingOpeningFlag),
+    ]);
+    console.log(`  [dry-run] would backfill carry-forward fields on ${carry} bill(s)`);
+    console.log(`  [dry-run] would backfill isOpeningBalance on ${opening} bill(s)`);
     return;
   }
 
-  const result = await db
-    .collection("bills")
-    .updateMany(
-      { carriedForwardAmount: { $exists: false } },
-      { $set: { carriedForwardAmount: 0, carriedForwardToBillId: null } },
-    );
+  const carry = await db.collection("bills").updateMany(missingCarryForward, {
+    $set: { carriedForwardAmount: 0, carriedForwardToBillId: null },
+  });
 
-  console.log(`  bills: ${result.modifiedCount} document(s) backfilled`);
+  console.log(`  bills: ${carry.modifiedCount} carry-forward field(s) backfilled`);
+
+  // Every bill that already exists was generated from recorded ledger entries,
+  // so none of them are opening balances.
+  const opening = await db
+    .collection("bills")
+    .updateMany(missingOpeningFlag, { $set: { isOpeningBalance: false } });
+
+  console.log(`  bills: ${opening.modifiedCount} isOpeningBalance flag(s) backfilled`);
 }
 
 async function main() {
@@ -233,8 +243,8 @@ async function main() {
     await normalizeBlankMobileNumbers(db);
     await dropMobileNumberUniqueIndex(db);
 
-    console.log("\nBill carry-forward fields:");
-    await backfillCarryForwardFields(db);
+    console.log("\nNew bill fields:");
+    await backfillBillFields(db);
 
     console.log(
       DRY_RUN

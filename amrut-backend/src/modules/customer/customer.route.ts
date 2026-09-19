@@ -19,6 +19,9 @@ import {
   topUpDepositHandler,
   refundDepositHandler,
   getCustomerStatementHandler,
+  getOpeningBalanceHandler,
+  setOpeningBalanceHandler,
+  removeOpeningBalanceHandler,
 } from "./customer.controller";
 
 export const customerRoutes: FastifyPluginAsync = async (app) => {
@@ -34,6 +37,20 @@ export const customerRoutes: FastifyPluginAsync = async (app) => {
   app.post("/:id/deposits/top-up", { preHandler: authorizeRoles("owner", "manager") }, topUpDepositHandler);
   app.post("/:id/deposits/refund", { preHandler: authorizeRoles("owner", "manager") }, refundDepositHandler);
   app.get("/:id/statement", getCustomerStatementHandler);
+
+  // Opening balances only exist while migrating off paper records, so changing
+  // one is restricted to the roles that can already correct money.
+  app.get("/:id/opening-balance", getOpeningBalanceHandler);
+  app.post(
+    "/:id/opening-balance",
+    { preHandler: authorizeRoles("owner", "manager") },
+    setOpeningBalanceHandler,
+  );
+  app.delete(
+    "/:id/opening-balance",
+    { preHandler: authorizeRoles("owner", "manager") },
+    removeOpeningBalanceHandler,
+  );
   app.patch("/:id/archive", { preHandler: authorizeRoles("owner", "manager") }, archiveCustomerHandler);
   app.patch("/:id/restore", { preHandler: authorizeRoles("owner", "manager") }, restoreCustomerHandler);
 

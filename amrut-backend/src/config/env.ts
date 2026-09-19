@@ -19,6 +19,25 @@ const config = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().positive().default(5000),
     HOST: z.string().default("0.0.0.0"),
+
+    /**
+     * Diagnostics are opt-in and deliberately NOT derived from NODE_ENV.
+     *
+     * A deployed service that is missing NODE_ENV=production used to silently
+     * turn on full Prisma query logging and the pino-pretty transport, both of
+     * which are expensive and were adding real latency to every request.
+     */
+    LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).optional(),
+    LOG_PRETTY: z.enum(["true", "false"]).optional(),
+    PRISMA_LOG_QUERIES: z.enum(["true", "false"]).default("false"),
+
+    /**
+     * Interactive transactions run several round trips. On a deployment whose
+     * database is in another region each of those costs real time, so the
+     * ceiling is configurable rather than stuck at Prisma's 5s default.
+     */
+    DB_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(20_000),
+    DB_TRANSACTION_MAX_WAIT_MS: z.coerce.number().int().min(2_000).max(60_000).default(10_000),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV === "production" && !value.CORS_ORIGIN)
@@ -45,4 +64,13 @@ export const env = {
   nodeEnv: parsed.NODE_ENV,
   port: parsed.PORT,
   host: parsed.HOST,
+
+  logLevel: parsed.LOG_LEVEL ?? (parsed.NODE_ENV === "production" ? "info" : "debug"),
+  // Pretty printing spawns a transport worker and formats every line. Useful at
+  // a terminal, wasteful on a server.
+  logPretty: parsed.LOG_PRETTY === "true" || (parsed.LOG_PRETTY === undefined && parsed.NODE_ENV === "development"),
+  prismaLogQueries: parsed.PRISMA_LOG_QUERIES === "true",
+
+  dbTransactionTimeoutMs: parsed.DB_TRANSACTION_TIMEOUT_MS,
+  dbTransactionMaxWaitMs: parsed.DB_TRANSACTION_MAX_WAIT_MS,
 };

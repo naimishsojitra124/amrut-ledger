@@ -1,0 +1,16 @@
+meta {
+  name: DB Health
+  type: http
+  seq: 11
+}
+
+get {
+  url: https://amrut-ledger.onrender.com/health/db
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: false
+  forwardAuthorizationHeader: false
+}

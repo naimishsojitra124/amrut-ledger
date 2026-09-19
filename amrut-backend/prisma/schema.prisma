@@ -77,6 +77,8 @@ enum AuditLogType {
   entry_updated
   entry_deleted
   bill_generated
+  opening_balance_set
+  opening_balance_removed
   payment_added
   payment_reversed
   note_added
@@ -391,12 +393,18 @@ model Bill {
   // balance is rolled into that bill's `previousDue`. The amount moves out of
   // `outstandingAmount` so that summing outstanding across bills never counts
   // the same debt twice.
-  carriedForwardAmount   Int      @default(0)
-  carriedForwardToBillId String?  @db.ObjectId
-  notes                  String?
-  billVersion            Int      @default(1)
-  generatedAt            DateTime @default(now())
-  generatedById          String   @db.ObjectId
+  carriedForwardAmount   Int     @default(0)
+  carriedForwardToBillId String? @db.ObjectId
+
+  /// True for the balance a customer was already carrying when the shop moved
+  /// onto this system. It is a real receivable — payable, carried forward and
+  /// counted like any other bill — but it has no milk or item lines behind it,
+  /// because that history was never recorded here.
+  isOpeningBalance Boolean  @default(false)
+  notes            String?
+  billVersion      Int      @default(1)
+  generatedAt      DateTime @default(now())
+  generatedById    String   @db.ObjectId
 
   customer       Customer       @relation(fields: [customerId], references: [id])
   cardAssignment CardAssignment @relation(fields: [cardAssignmentId], references: [id])

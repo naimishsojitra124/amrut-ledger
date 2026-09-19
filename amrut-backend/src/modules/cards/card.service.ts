@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client";
 import { AUDIT_FIELD, change } from "../audit/audit.util";
+import { TX_OPTIONS } from "@/app/db/transaction";
 import type {
   AssignCardRequest,
   CardAssignmentSummaryResponse,
@@ -511,7 +512,7 @@ export async function assignCardToCustomer(
     });
 
     return assignment;
-  });
+  }, TX_OPTIONS);
 
   return normalizeAssignment(result);
 }
@@ -578,7 +579,7 @@ export async function makeCardAvailable(
         assignedBy: true,
       },
     });
-  });
+  }, TX_OPTIONS);
 
   if (!updated) {
     throw createHttpError(404, "Card assignment not found");
