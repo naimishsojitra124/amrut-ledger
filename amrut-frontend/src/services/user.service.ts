@@ -14,7 +14,7 @@ import {
 } from "./utils/query-config";
 import { apiConnector } from "@/services/utils/apiConnector";
 
-export type UserRole = "owner" | "manager" | "employee";
+export type UserRole = "owner" | "manager" | "employee" | "guest";
 
 export type UserStatus = "active" | "inactive";
 

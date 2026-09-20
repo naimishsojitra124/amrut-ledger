@@ -23,6 +23,8 @@ export const createUserSchema = z.object({
     .regex(/^\d{10}$/, "Mobile number must be a 10 digit number"),
   email: z.string().trim().email("Invalid email"),
   password: passwordSchema,
+  // `guest` is deliberately absent: it belongs to the public demo account
+  // and must never be assignable to a real person through the UI.
   role: z.enum(["owner", "manager", "employee"]),
 });
 
@@ -49,6 +51,14 @@ export const changeUserPasswordSchema = z.object({
   password: passwordSchema,
 });
 
+/** Self-service change: proving you know the current password is the point. */
+export const changeOwnPasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Enter your current password"),
+  newPassword: passwordSchema,
+});
+
 export const changeUserRoleSchema = z.object({
+  // `guest` is deliberately absent: it belongs to the public demo account
+  // and must never be assignable to a real person through the UI.
   role: z.enum(["owner", "manager", "employee"]),
 });

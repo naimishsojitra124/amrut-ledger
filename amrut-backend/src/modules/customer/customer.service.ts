@@ -2482,7 +2482,7 @@ export async function getCustomerDailyHistory(
         lt: startOfNextMonth,
       },
     },
-    orderBy: { ledgerDate: "desc" },
+    orderBy: { ledgerDate: "asc" },
   });
 
   const items: CustomerDailyHistoryItemResponse[] = ledgers.map((ledger: DailyLedgerRecord) => ({

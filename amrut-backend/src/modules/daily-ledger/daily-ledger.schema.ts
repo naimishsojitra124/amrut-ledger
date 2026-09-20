@@ -13,10 +13,17 @@ export const dailyLedgerDateParamSchema = z.object({
   date: businessDateSchema,
 });
 
-export const dailyLedgerEntryIndexParamSchema = z.object({
+/**
+ * Entries are addressed by their stable id, not by position.
+ *
+ * Positions shift under you: if another device removes an entry while this
+ * page is open, "entry 2" is no longer the row the user selected, and the
+ * edit or deletion silently lands on the wrong one.
+ */
+export const dailyLedgerEntryParamSchema = z.object({
   customerId: z.string().min(1, "Customer id is required"),
   date: businessDateSchema,
-  entryIndex: z.coerce.number().int().min(0),
+  entryId: z.string().min(1, "Entry id is required"),
 });
 
 export const dailyLedgerListQuerySchema = z

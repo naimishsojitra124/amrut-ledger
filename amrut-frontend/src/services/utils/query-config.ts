@@ -123,20 +123,27 @@ export function retryQuery(failureCount: number, error: unknown): boolean {
   return true;
 }
 
+/**
+ * Refetching on focus is what makes a second device feel current without
+ * anyone reloading: returning to the tab pulls whatever changed while it was
+ * in the background. The per-query `staleTime` keeps this from turning into a
+ * request on every alt-tab.
+ */
 export const STANDARD_QUERY_BEHAVIOR = {
-  refetchOnWindowFocus: false,
+  refetchOnWindowFocus: true,
   refetchOnReconnect: true,
   refetchOnMount: true,
   retry: retryQuery,
 } as const;
 
 export const FINANCIAL_QUERY_BEHAVIOR = {
-  refetchOnWindowFocus: false,
+  refetchOnWindowFocus: true,
   refetchOnReconnect: true,
   refetchOnMount: true,
   retry: retryQuery,
 } as const;
 
+// Catalogue data barely changes, so it does not need a focus refetch.
 export const STATIC_QUERY_BEHAVIOR = {
   refetchOnWindowFocus: false,
   refetchOnReconnect: true,

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { authenticate } from "@/app/middleware/authenticate";
 import {
+  authConfigHandler,
   loginHandler,
   logoutHandler,
   meHandler,
@@ -44,6 +45,10 @@ const REFRESH_RATE_LIMIT = {
 };
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
+  // Public: the login screen reads this before deciding whether to offer a
+  // guest button. Returns nothing sensitive.
+  app.get("/config", authConfigHandler);
+
   app.post("/login", { config: { rateLimit: LOGIN_RATE_LIMIT } }, loginHandler);
   app.get("/me", { preHandler: authenticate }, meHandler);
   app.get("/sessions", { preHandler: authenticate }, sessionsHandler);

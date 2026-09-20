@@ -18,6 +18,11 @@ enum UserRole {
   owner
   manager
   employee
+
+  /// Read-only account for the public demo. Never assignable through the UI —
+  /// it exists only so the permission matrix can describe it, and the guest
+  /// login endpoint only works when DEMO_MODE is on.
+  guest
 }
 
 enum UserStatus {
@@ -123,6 +128,13 @@ type LedgerProductEntry {
 }
 
 type DailyLedgerEntry {
+  /// Stable identifier for this entry.
+  ///
+  /// Entries used to be addressed by their position in the array, which meant
+  /// that if one device removed an entry while another had the page open, the
+  /// second device's "delete entry 2" landed on a different row than the one
+  /// its user had selected. Addressing by id makes that impossible.
+  id              String               @default("")
   createdAt       DateTime             @default(now())
   createdById     String               @db.ObjectId
   clientRequestId String               @default("")

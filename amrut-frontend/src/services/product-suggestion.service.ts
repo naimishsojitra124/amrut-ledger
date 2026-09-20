@@ -257,12 +257,14 @@ async function fetchActiveProductSuggestions(
 
 export function useProductSuggestionsQuery(
   query: ProductSuggestionListQuery = {},
+  options: { enabled?: boolean } = {},
 ) {
   return useQuery({
     queryKey: listQueryKey(query),
 
     queryFn: ({ signal }) => fetchProductSuggestions(query, signal),
 
+    enabled: options.enabled ?? true,
     placeholderData: (previous) => previous,
 
     staleTime: QUERY_STALE_TIMES.productSuggestionsList,

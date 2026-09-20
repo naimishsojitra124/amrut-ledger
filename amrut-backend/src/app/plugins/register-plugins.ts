@@ -9,6 +9,7 @@ import { prismaPlugin } from "./prisma.plugin.js";
 import { jwtPlugin } from "./jwt.plugin.js";
 import { swaggerPlugin } from "./swagger.plugin.js";
 import { websocketPlugin } from "./websocket.plugin.js";
+import { startDemoResetSchedule } from "@/modules/demo/demo-reset.service";
 
 export async function registerAppPlugins(app: FastifyInstance) {
   await app.register(helmet, {
@@ -57,4 +58,8 @@ export async function registerAppPlugins(app: FastifyInstance) {
   await app.register(jwtPlugin);
   await app.register(swaggerPlugin);
   await app.register(websocketPlugin);
+
+  // Inert unless DEMO_MODE is on. Rebuilds the sample data on a schedule so a
+  // shared, fully writable demo cannot be spoiled permanently.
+  startDemoResetSchedule(app);
 }

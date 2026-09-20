@@ -191,6 +191,12 @@ export default function CustomerDailyHistoryTab({
     [selectedMonth, selectedYear],
   );
 
+  /**
+   * The API already returns these in date order, so this only guards against a
+   * caller getting them from somewhere else. Re-sorting descending here used to
+   * override the order the endpoint chose, which made changing it on the server
+   * look like it had no effect.
+   */
   const monthItems = useMemo(() => {
     if (!data?.items?.length) {
       return [];
@@ -198,7 +204,7 @@ export default function CustomerDailyHistoryTab({
 
     return [...data.items].sort(
       (a, b) =>
-        new Date(b.ledgerDate).getTime() - new Date(a.ledgerDate).getTime(),
+        new Date(a.ledgerDate).getTime() - new Date(b.ledgerDate).getTime(),
     );
   }, [data?.items]);
 

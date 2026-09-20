@@ -8,6 +8,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import type { Permission } from "@/config/permissions";
+import { PERMISSIONS } from "@/config/permissions";
+
 export type SidebarItem = {
   id: string;
   title: string;
@@ -15,6 +18,11 @@ export type SidebarItem = {
   path: string;
   icon: LucideIcon;
   isVisible?: boolean;
+  /**
+   * Hidden unless the user holds this. `null` means everyone signed in — the
+   * dashboard and settings both show only what the viewer can already reach.
+   */
+  permission: Permission | null;
 };
 
 export const SIDEBAR_ITEMS: SidebarItem[] = [
@@ -24,6 +32,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     value: "dashboard",
     path: "/dashboard",
     icon: LayoutDashboard,
+    permission: null,
   },
   {
     id: "customers",
@@ -31,6 +40,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     value: "customers",
     path: "/customers",
     icon: Users,
+    permission: PERMISSIONS.CUSTOMER_VIEW,
   },
   {
     id: "quick-entry",
@@ -38,6 +48,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     value: "quick-entry",
     path: "/quick-entry",
     icon: ClipboardPenLine,
+    permission: PERMISSIONS.LEDGER_ENTRY_CREATE,
   },
   {
     id: "bills",
@@ -45,6 +56,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     value: "bills",
     path: "/bills",
     icon: ScrollText,
+    permission: PERMISSIONS.BILL_VIEW,
   },
   {
     id: "function-orders",
@@ -52,6 +64,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     value: "function-orders",
     path: "/function-orders",
     icon: CalendarDays,
+    permission: PERMISSIONS.FUNCTION_ORDER_VIEW,
   },
   {
     id: "settings",
@@ -59,5 +72,6 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     value: "settings",
     path: "/settings",
     icon: Settings,
+    permission: null,
   },
 ];

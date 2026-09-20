@@ -134,12 +134,17 @@ export default function CustomerFormModal() {
 
   const customerId = customerForm?.customerId ?? null;
 
-  const { data: milkTypesData } = useActiveMilkTypesQuery();
+  // These modals stay mounted for the whole session. Fetching only while one
+  // is open keeps the login screen and every unrelated page from firing
+  // requests that are never used — and, when signed out, 401 toasts.
+  const { data: milkTypesData } = useActiveMilkTypesQuery({ enabled: isOpen });
 
-  const customerQuery = useCustomerQuery(mode === "edit" ? customerId : null);
+  const customerQuery = useCustomerQuery(
+    isOpen && mode === "edit" ? customerId : null,
+  );
 
-  const availableCardsQuery = useAvailableCardsQuery();
-  const cardNumberingQuery = useCardNumberingQuery();
+  const availableCardsQuery = useAvailableCardsQuery({ enabled: isOpen });
+  const cardNumberingQuery = useCardNumberingQuery({ enabled: isOpen });
   const createCustomerMutation = useCreateCustomerMutation();
   const updateCustomerMutation = useUpdateCustomerMutation();
 

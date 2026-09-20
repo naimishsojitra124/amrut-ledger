@@ -35,7 +35,8 @@ import {
 import FilterSelect from "@/components/common/filter-select";
 import { ActionTooltip } from "@/components/common/action-tooltip";
 
-import { useAuth } from "@/hooks/use-auth";
+import { usePermissions } from "@/hooks/use-permissions";
+import { PERMISSIONS } from "@/config/permissions";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { cn } from "@/lib/utils";
 
@@ -84,6 +85,12 @@ const ROLE_META: Record<
     iconClassName: "text-amber-600",
     description: "Can add entries, view customers and collect payments.",
   },
+  guest: {
+    label: "Guest",
+    badgeClassName: "bg-slate-100 text-slate-700 hover:bg-slate-100",
+    iconClassName: "text-slate-600",
+    description: "Can view limited information without making changes.",
+  }
 };
 
 const STATUS_META: Record<
@@ -103,7 +110,7 @@ const STATUS_META: Record<
   },
 };
 
-const AVATAR_CLASSES = [
+export const AVATAR_CLASSES = [
   "bg-violet-200 text-violet-700",
   "bg-rose-200 text-rose-700",
   "bg-emerald-200 text-emerald-700",
@@ -164,7 +171,9 @@ function renderPaginationItems(currentPage: number, pageCount: number) {
 }
 
 export default function UsersTab() {
-  const { isOwner } = useAuth();
+  const { can } = usePermissions();
+  const canCreateUser = can(PERMISSIONS.USER_CREATE);
+  const canArchiveUser = can(PERMISSIONS.USER_ARCHIVE);
   const { openUserForm, openConfirmation } = useModalStore();
 
   const [searchText, setSearchText] = useState("");
@@ -245,7 +254,7 @@ export default function UsersTab() {
   }, [pageIndex, totalPages]);
 
   function handleAddUser() {
-    if (!isOwner) {
+    if (!canCreateUser) {
       return;
     }
 
@@ -259,7 +268,7 @@ export default function UsersTab() {
   function handleToggleUserStatus(user: UserResponse) {
     const isActive = user.status === "active";
 
-    if (!isOwner) return;
+    if (!canArchiveUser) return;
 
     openConfirmation({
       title: `${isActive ? "Deactivate" : "Activate"} ${user.fullName}?`,
@@ -297,7 +306,7 @@ export default function UsersTab() {
           <Button
             type="button"
             onClick={handleAddUser}
-            disabled={!isOwner}
+            disabled={!canCreateUser}
             size="default"
           >
             <Plus className="h-4 w-4" />
@@ -466,7 +475,7 @@ export default function UsersTab() {
                                 </p>
 
                                 <p className="text-xs text-neutral-500">
-                                  {ROLE_META[user.role].label}
+                                  {ROLE_META[user.role]?.label}
                                 </p>
                               </div>
                             </div>
@@ -478,19 +487,19 @@ export default function UsersTab() {
 
                           <TableCell className="p-3 text-center">
                             <Badge
-                              className={ROLE_META[user.role].badgeClassName}
+                              className={ROLE_META[user.role]?.badgeClassName}
                             >
-                              {ROLE_META[user.role].label}
+                              {ROLE_META[user.role]?.label}
                             </Badge>
                           </TableCell>
 
                           <TableCell className="p-3 text-center">
                             <Badge
                               className={
-                                STATUS_META[user.status].badgeClassName
+                                STATUS_META[user.status]?.badgeClassName
                               }
                             >
-                              {STATUS_META[user.status].label}
+                              {STATUS_META[user.status]?.label}
                             </Badge>
                           </TableCell>
 
@@ -540,7 +549,7 @@ export default function UsersTab() {
                                 )}
                                 onClick={() => handleToggleUserStatus(user)}
                                 disabled={
-                                  !isOwner ||
+                                  !canArchiveUser ||
                                   archiveUserMutation.isPending ||
                                   restoreUserMutation.isPending
                                 }
@@ -773,7 +782,7 @@ function RoleCard({
 
         <div className="min-w-0 flex-1">
           <h5 className="text-sm font-semibold text-neutral-900">
-            {ROLE_META[role].label}
+            {ROLE_META[role]?.label}
           </h5>
 
           <p className="mt-1 text-xs leading-5 text-neutral-600">
@@ -783,7 +792,7 @@ function RoleCard({
           <Badge
             className={cn(
               "mt-3 h-6 rounded-md px-2 text-xs font-semibold",
-              ROLE_META[role].badgeClassName,
+              ROLE_META[role]?.badgeClassName,
             )}
           >
             {count} {count === 1 ? "User" : "Users"}

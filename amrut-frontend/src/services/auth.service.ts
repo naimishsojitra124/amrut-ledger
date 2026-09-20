@@ -1,12 +1,19 @@
 import { apiConnector } from "./utils/apiConnector";
+import type { Permission } from "@/config/permissions";
 
 export interface AuthUser {
   id: string;
   fullName: string;
   mobileNumber: string;
   email: string;
-  role: "owner" | "manager" | "employee";
+  role: "owner" | "manager" | "employee" | "guest";
   status: "active" | "inactive";
+  /**
+   * Resolved from the role by the API. The UI gates on these rather than on
+   * the role name, so access is defined in exactly one place — see
+   * `amrut-backend/src/app/auth/permissions.ts`.
+   */
+  permissions: Permission[];
 }
 
 export interface LoginRequest {
@@ -19,7 +26,24 @@ export interface AuthResponse {
   accessToken: string;
 }
 
+/** Whether this deployment is a public demo, and the credentials to use. */
+export interface AuthConfig {
+  demoMode: boolean;
+  /** Published on purpose. Null on a real deployment. */
+  demoCredentials: { mobileNumber: string; password: string } | null;
+  demoResetIntervalHours: number | null;
+}
+
 export const authAPI = {
+  /**
+   * Read before the login screen decides whether to offer a guest button.
+   * A deployment without DEMO_MODE simply reports `demoMode: false`.
+   */
+  config: async (): Promise<AuthConfig> => {
+    const response = await apiConnector<AuthConfig>("GET", "/auth/config");
+    return response.data;
+  },
+
   login: async (data: LoginRequest): Promise<AuthResponse> => {
     try {
       const response = await apiConnector<AuthResponse>(

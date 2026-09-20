@@ -1,11 +1,13 @@
 import { useMemo } from "react";
 import { useAuthStore } from "@/store/auth.store";
+import type { Permission, UserRole } from "@/config/permissions";
 
 export const useAuth = () => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isLoading = useAuthStore((s) => s.isLoading);
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
+  const isLoggingOut = useAuthStore((s) => s.isLoggingOut);
 
   const login = useAuthStore((s) => s.login);
   const logout = useAuthStore((s) => s.logout);
@@ -36,14 +38,21 @@ export const useAuth = () => {
       isOwner: user?.role === "owner",
       isManager: user?.role === "manager",
       isEmployee: user?.role === "employee",
-      hasRole: (roles: Array<"owner" | "manager" | "employee">) =>
-        !!user && roles.includes(user.role),
+      hasRole: (roles: UserRole[]) => !!user && roles.includes(user.role),
+      /** Signed in through the public demo rather than as a real account. */
+      isGuest: user?.role === "guest",
+      /**
+       * Prefer this over the role flags above: it follows the server's access
+       * matrix, so a change there does not need a matching change here.
+       */
+      can: (permission: Permission) => !!user?.permissions?.includes(permission),
     };
   }, [user]);
 
   return {
     isAuthenticated,
     isLoading,
+    isLoggingOut,
     user,
     token,
     login,

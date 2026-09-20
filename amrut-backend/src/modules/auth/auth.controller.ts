@@ -3,6 +3,7 @@ import { env } from "@/config/env";
 import { loginSchema } from "./auth.schema";
 import {
   getCurrentUser,
+  getDemoCredentials,
   getSessions,
   getRefreshCookieOptions,
   login,
@@ -24,6 +25,20 @@ export async function loginHandler(
   return reply.send({
     user: result.user,
     accessToken: result.accessToken,
+  });
+}
+
+/**
+ * Tells the frontend whether the demo door exists here, so it only offers
+ * "Explore as guest" on a deployment that actually has one.
+ */
+export async function authConfigHandler(_request: FastifyRequest, reply: FastifyReply) {
+  return reply.send({
+    demoMode: env.demoMode,
+    // Published on purpose: the login screen shows these so a reviewer can
+    // sign straight in. Only ever sent by a demo deployment.
+    demoCredentials: env.demoMode ? getDemoCredentials() : null,
+    demoResetIntervalHours: env.demoMode ? env.demoResetIntervalHours : null,
   });
 }
 

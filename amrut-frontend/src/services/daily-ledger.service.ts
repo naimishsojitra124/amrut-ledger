@@ -57,6 +57,8 @@ export interface DailyLedgerUserSummaryResponse {
 }
 
 export interface DailyLedgerEntryResponse {
+  /** Stable identifier. Edits and deletions address this, never the index. */
+  id: string;
   entryIndex: number;
   createdAt: string;
   createdBy: DailyLedgerUserSummaryResponse;
@@ -208,12 +210,12 @@ export function useUpdateDailyLedgerEntryMutation() {
     mutationFn: async (variables: {
       customerId: string;
       date: string;
-      entryIndex: number;
+      entryId: string;
       payload: UpdateDailyLedgerEntryRequest;
     }) => {
       const response = await apiConnector<DailyLedgerResponse>(
         "PATCH",
-        `/customers/${variables.customerId}/ledgers/${variables.date}/entries/${variables.entryIndex}`,
+        `/customers/${variables.customerId}/ledgers/${variables.date}/entries/${variables.entryId}`,
         variables.payload,
       );
 
@@ -241,11 +243,11 @@ export function useDeleteDailyLedgerEntryMutation() {
     mutationFn: async (variables: {
       customerId: string;
       date: string;
-      entryIndex: number;
+      entryId: string;
     }) => {
       const response = await apiConnector<DailyLedgerResponse>(
         "DELETE",
-        `/customers/${variables.customerId}/ledgers/${variables.date}/entries/${variables.entryIndex}`,
+        `/customers/${variables.customerId}/ledgers/${variables.date}/entries/${variables.entryId}`,
       );
 
       return mapLedger(response.data);

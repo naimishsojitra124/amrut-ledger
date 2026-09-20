@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "../../../generated/prisma/client";
 import { AUDIT_FIELD, change, describeLedgerEntry } from "../audit/audit.util";
 import { TX_OPTIONS } from "@/app/db/transaction";
+import { nanoid } from "nanoid";
 import type {
   AddDailyLedgerEntryRequest,
   CreateDailyLedgerRequest,
@@ -176,6 +177,7 @@ function normalizeEntry(
   createdBy?: DailyLedgerUserSummaryResponse,
 ): DailyLedgerEntryResponse {
   return {
+    id: entry.id,
     entryIndex,
     createdAt: entry.createdAt.toISOString(),
     createdBy:
@@ -334,47 +336,55 @@ async function getActiveAssignmentOrThrow(
   return assignment;
 }
 
-async function getAssignmentForLedgerDateOrThrow(
+/**
+ * The card assignment a ledger entry should be attributed to.
+ *
+ * Normally this is whichever card the customer held on that day. But entries
+ * are routinely recorded for days that predate the assignment itself: a shop
+ * moving onto this system creates its customers today and then back-fills the
+ * month, and a missed day is often written up later. Refusing those was wrong —
+ * the day happened, the customer owes for it, and which card they were holding
+ * is only a grouping detail.
+ *
+ * So when no assignment covers the date we fall back to the earliest one the
+ * customer has, which is the card they were on when the records begin.
+ */
+export async function getAssignmentForLedgerDateOrThrow(
   prisma: PrismaClient,
   customerId: string,
   dateString: string,
 ) {
   const ledgerDate = dateStringToBusinessDate(dateString);
-  const nextDay = new Date(
-    ledgerDate.getTime() + 24 * 60 * 60 * 1000,
-  );
+  const dayAfter = new Date(ledgerDate.getTime() + 24 * 60 * 60 * 1000);
 
-  const assignment = await prisma.cardAssignment.findFirst({
+  // The assignment actually in effect on that day: issued by the end of it,
+  // and not handed back before it started.
+  const inEffect = await prisma.cardAssignment.findFirst({
     where: {
       customerId,
-      assignedAt: {
-        lte: nextDay,
-      },
-      OR: [
-        {
-          unassignedAt: null,
-        },
-        {
-          unassignedAt: {
-            gt: ledgerDate,
-          },
-        },
-      ],
+      assignedAt: { lte: dayAfter },
+      OR: [{ unassignedAt: null }, { unassignedAt: { gt: ledgerDate } }],
     },
     select: CARD_ASSIGNMENT_SELECT,
-    orderBy: {
-      assignedAt: "desc",
-    },
+    orderBy: { assignedAt: "desc" },
   });
 
-  if (!assignment) {
-    throw createHttpError(
-      409,
-      "Card assignment not found for the selected date",
-    );
-  }
+  if (inEffect) return inEffect;
 
-  return assignment;
+  // Back-dated to before this customer had a card here.
+  const earliest = await prisma.cardAssignment.findFirst({
+    where: { customerId },
+    select: CARD_ASSIGNMENT_SELECT,
+    orderBy: { assignedAt: "asc" },
+  });
+
+  if (earliest) return earliest;
+
+  // No card has ever been issued, so there is nothing to attribute this to.
+  throw createHttpError(
+    409,
+    "Assign a card to this customer before recording ledger entries",
+  );
 }
 
 async function getLedgerOrThrow(
@@ -979,6 +989,9 @@ export async function addLedgerEntry(
   });
 
   const entry = {
+    // Stable for the life of the entry, so edits and deletions from any device
+    // always address the row the user actually selected.
+    id: nanoid(12),
     createdAt: new Date(),
     createdById: performedById,
     clientRequestId:
@@ -1105,86 +1118,53 @@ export async function addLedgerEntry(
   );
 }
 
+/**
+ * Applies a change to one entry, addressed by its stable id.
+ *
+ * Read and write happen in a single transaction so two devices editing the
+ * same day cannot overwrite each other: the second writer sees the first
+ * writer's version and either applies cleanly or is told the entry has moved
+ * on. Previously this read the array, mutated it in memory and wrote it back
+ * with no transaction at all, so the later write silently discarded the
+ * earlier one.
+ */
 export async function updateLedgerEntry(
   app: FastifyInstance,
   customerId: string,
   performedById: string,
   date: string,
-  entryIndex: number,
+  entryId: string,
   input: UpdateDailyLedgerEntryRequest,
 ): Promise<DailyLedgerResponse> {
   const prisma = getPrisma(app);
-
-  const ledger =
-    await getLedgerOrThrow(
-      prisma,
-      customerId,
-      date,
-    );
-
-  if (
-    entryIndex < 0 ||
-    entryIndex >=
-      (ledger.entries?.length ?? 0)
-  ) {
-    throw createHttpError(
-      404,
-      "Ledger entry not found",
-    );
-  }
 
   if (
     input.milkEntries === undefined &&
     input.productEntries === undefined &&
     input.notes === undefined
   ) {
-    throw createHttpError(
-      400,
-      "At least one field is required",
-    );
+    throw createHttpError(400, "At least one field is required");
   }
 
-  const oldEntry =
-    ledger.entries[entryIndex];
+  const ledgerDate = dateStringToBusinessDate(date);
 
-  if (!oldEntry) {
-    throw createHttpError(
-      404,
-      "Ledger entry not found",
-    );
-  }
+  // Resolving milk types and products hits the database, so it happens before
+  // the transaction opens rather than inside it.
+  const existingLedger = await getLedgerOrThrow(prisma, customerId, date);
+  const oldEntry = findEntryById(existingLedger.entries, entryId);
 
-  const [
-    nextMilkEntries,
-    nextProductEntries,
-  ] = await Promise.all([
+  const [nextMilkEntries, nextProductEntries] = await Promise.all([
     input.milkEntries !== undefined
-      ? resolveMilkEntries(
-          prisma,
-          input.milkEntries,
-        )
-      : Promise.resolve(
-          oldEntry.milkEntries ?? [],
-        ),
+      ? resolveMilkEntries(prisma, input.milkEntries)
+      : Promise.resolve(oldEntry.milkEntries ?? []),
 
     input.productEntries !== undefined
-      ? resolveProductEntries(
-          prisma,
-          input.productEntries,
-        )
-      : Promise.resolve(
-          oldEntry.productEntries ?? [],
-        ),
+      ? resolveProductEntries(prisma, input.productEntries)
+      : Promise.resolve(oldEntry.productEntries ?? []),
   ]);
 
-  if (
-    nextMilkEntries.length === 0 &&
-    nextProductEntries.length === 0
-  ) {
-    throw createHttpError(
-      400,
-      "At least one entry is required",
-    );
+  if (nextMilkEntries.length === 0 && nextProductEntries.length === 0) {
+    throw createHttpError(400, "At least one entry is required");
   }
 
   const totals = calculateEntryTotals({
@@ -1192,154 +1172,142 @@ export async function updateLedgerEntry(
     productEntries: nextProductEntries,
   });
 
-  const nextEntry = {
-    createdAt:
-      oldEntry.createdAt ??
-      new Date(),
-    createdById:
-      oldEntry.createdById ??
-      performedById,
-    clientRequestId:
-      oldEntry.clientRequestId ??
-      "",
-    milkEntries:
-      nextMilkEntries,
-    productEntries:
-      nextProductEntries,
-    notes:
-      input.notes !== undefined
-        ? input.notes
-        : (oldEntry.notes ?? ""),
-    totalAmount:
-      totals.totalAmount,
-  };
+  const result = await prisma.$transaction(async (tx: PrismaClient) => {
+    // Re-read inside the transaction: the entry may have been changed or
+    // removed between the read above and this write.
+    const current = await tx.dailyLedger.findUnique({
+      where: { customerId_ledgerDate: { customerId, ledgerDate } },
+      select: { id: true, entries: true },
+    });
 
-  const nextEntries = [
-    ...ledger.entries,
-  ];
+    if (!current) throw createHttpError(404, "Daily ledger not found");
 
-  nextEntries[entryIndex] =
-    nextEntry;
+    const entries = (current.entries ?? []) as any[];
+    const index = entries.findIndex((entry) => entry.id === entryId);
 
-  const updatedLedger =
-    await prisma.dailyLedger.update({
-      where: {
-        id: ledger.id,
-      },
-      data: {
-        entries: nextEntries,
-        updatedById:
-          performedById,
-      },
+    if (index === -1) {
+      throw createHttpError(
+        409,
+        "This entry was removed on another device. Refresh to see the current entries.",
+      );
+    }
+
+    const currentEntry = entries[index];
+
+    const nextEntry = {
+      id: currentEntry.id,
+      createdAt: currentEntry.createdAt ?? new Date(),
+      createdById: currentEntry.createdById ?? performedById,
+      clientRequestId: currentEntry.clientRequestId ?? "",
+      milkEntries: nextMilkEntries,
+      productEntries: nextProductEntries,
+      notes: input.notes !== undefined ? input.notes : (currentEntry.notes ?? ""),
+      totalAmount: totals.totalAmount,
+    };
+
+    const nextEntries = [...entries];
+    nextEntries[index] = nextEntry;
+
+    const ledger = await tx.dailyLedger.update({
+      where: { id: current.id },
+      data: { entries: nextEntries, updatedById: performedById },
       select: LEDGER_SELECT,
     });
+
+    return { ledger, oldEntry: currentEntry, nextEntry };
+  }, TX_OPTIONS);
 
   await createAuditLog(prisma, {
     customerId,
     performedById,
     type: "entry_updated",
     title: `Ledger entry updated for ${formatDisplayDate(date)}`,
-    ledgerId: updatedLedger.id,
+    ledgerId: result.ledger.id,
     ledgerDate: date,
-    oldEntry,
-    newEntry: nextEntry,
+    oldEntry: result.oldEntry,
+    newEntry: result.nextEntry,
   });
 
-  const userIds = [
-    updatedLedger.updatedBy.id,
-    ...(updatedLedger.entries ?? []).map(
-      (item: any) =>
-        item.createdById,
-    ),
-  ];
-
-  const userSummaryMap =
-    await loadUserSummaryMap(
-      prisma,
-      userIds,
-    );
-
-  return normalizeLedger(
-    updatedLedger,
-    userSummaryMap,
-  );
+  return normalizeLedger(result.ledger, await loadLedgerUsers(prisma, result.ledger));
 }
 
+/**
+ * Removes one entry, addressed by its stable id.
+ *
+ * Deleting by position was the more dangerous half of the old design: if
+ * another device removed an earlier entry first, this deleted a row the user
+ * had never selected, and the audit log recorded it as intentional.
+ */
 export async function deleteLedgerEntry(
   app: FastifyInstance,
   customerId: string,
   performedById: string,
   date: string,
-  entryIndex: number,
+  entryId: string,
 ): Promise<DailyLedgerResponse> {
   const prisma = getPrisma(app);
+  const ledgerDate = dateStringToBusinessDate(date);
 
-  const ledger =
-    await getLedgerOrThrow(
-      prisma,
-      customerId,
-      date,
-    );
+  const result = await prisma.$transaction(async (tx: PrismaClient) => {
+    const current = await tx.dailyLedger.findUnique({
+      where: { customerId_ledgerDate: { customerId, ledgerDate } },
+      select: { id: true, entries: true },
+    });
 
-  if (
-    entryIndex < 0 ||
-    entryIndex >=
-      (ledger.entries?.length ?? 0)
-  ) {
-    throw createHttpError(
-      404,
-      "Ledger entry not found",
-    );
-  }
+    if (!current) throw createHttpError(404, "Daily ledger not found");
 
-  const oldEntry =
-    ledger.entries[entryIndex];
+    const entries = (current.entries ?? []) as any[];
+    const index = entries.findIndex((entry) => entry.id === entryId);
 
-  const nextEntries =
-    ledger.entries.filter(
-      (_: any, index: number) =>
-        index !== entryIndex,
-    );
+    if (index === -1) {
+      throw createHttpError(
+        409,
+        "This entry was already removed on another device. Refresh to see the current entries.",
+      );
+    }
 
-  const updatedLedger =
-    await prisma.dailyLedger.update({
-      where: {
-        id: ledger.id,
-      },
+    const removed = entries[index];
+
+    const ledger = await tx.dailyLedger.update({
+      where: { id: current.id },
       data: {
-        entries: nextEntries,
-        updatedById:
-          performedById,
+        entries: entries.filter((_, position) => position !== index),
+        updatedById: performedById,
       },
       select: LEDGER_SELECT,
     });
+
+    return { ledger, removed };
+  }, TX_OPTIONS);
 
   await createAuditLog(prisma, {
     customerId,
     performedById,
     type: "entry_deleted",
     title: `Ledger entry deleted for ${formatDisplayDate(date)}`,
-    ledgerId: updatedLedger.id,
+    ledgerId: result.ledger.id,
     ledgerDate: date,
-    oldEntry,
+    oldEntry: result.removed,
   });
 
-  const userIds = [
-    updatedLedger.updatedBy.id,
-    ...(updatedLedger.entries ?? []).map(
-      (item: any) =>
-        item.createdById,
-    ),
-  ];
+  return normalizeLedger(result.ledger, await loadLedgerUsers(prisma, result.ledger));
+}
 
-  const userSummaryMap =
-    await loadUserSummaryMap(
-      prisma,
-      userIds,
-    );
+/** Throws a 404 shaped for the API when the id is not on the ledger. */
+function findEntryById(entries: unknown, entryId: string): any {
+  const found = ((entries ?? []) as any[]).find((entry) => entry.id === entryId);
 
-  return normalizeLedger(
-    updatedLedger,
-    userSummaryMap,
-  );
+  if (!found) {
+    throw createHttpError(404, "Ledger entry not found");
+  }
+
+  return found;
+}
+
+/** Creator and editor summaries for every entry on a ledger, in one query. */
+async function loadLedgerUsers(prisma: PrismaClient, ledger: any) {
+  return loadUserSummaryMap(prisma, [
+    ledger.updatedBy.id,
+    ...(ledger.entries ?? []).map((entry: any) => entry.createdById),
+  ]);
 }

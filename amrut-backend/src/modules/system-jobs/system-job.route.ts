@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { authenticate } from "@/app/middleware/authenticate";
-import { authorizeRoles } from "@/app/middleware/authorize";
+import { requirePermission } from "@/app/middleware/authorize";
+import { PERMISSIONS } from "@/app/auth/permissions";
 
 const jobs = [
   { id: "function-reminders", name: "Function order reminders", schedule: "Every hour" },
@@ -12,6 +13,28 @@ const jobs = [
 
 export const systemJobRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", authenticate);
-  app.get("/", { preHandler: authorizeRoles("owner") }, async () => ({ items: jobs.map((job) => ({ ...job, status: "not-configured", lastRun: null, nextRun: null, failureReason: "A server scheduler has not been configured yet." })) }));
-  app.post("/:id/retry", { preHandler: authorizeRoles("owner") }, async (request) => ({ id: (request.params as { id: string }).id, accepted: true, message: "Job retry has been queued for the scheduler." }));
+
+  app.get(
+    "/",
+    { preHandler: requirePermission(PERMISSIONS.SYSTEM_JOBS_VIEW) },
+    async () => ({
+      items: jobs.map((job) => ({
+        ...job,
+        status: "not-configured",
+        lastRun: null,
+        nextRun: null,
+        failureReason: "A server scheduler has not been configured yet.",
+      })),
+    }),
+  );
+
+  app.post(
+    "/:id/retry",
+    { preHandler: requirePermission(PERMISSIONS.SYSTEM_JOBS_MANAGE) },
+    async (request) => ({
+      id: (request.params as { id: string }).id,
+      accepted: true,
+      message: "Job retry has been queued for the scheduler.",
+    }),
+  );
 };

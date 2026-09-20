@@ -13,6 +13,7 @@ import { ActionTooltip } from "./common/action-tooltip";
 import { Button } from "./ui/button";
 import { UserProfilePopover } from "./UserProfilePopover";
 import { SIDEBAR_ITEMS } from "./sidebar-items";
+import { usePermissions } from "@/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -62,7 +63,13 @@ const Sidebar = () => {
     }
   }, [location.pathname, isMobile, close]);
 
-  const visibleItems = SIDEBAR_ITEMS.filter((item) => item.isVisible !== false);
+  const { can } = usePermissions();
+
+  // Hiding a link the user cannot open avoids sending them to a page that
+  // would only refuse them. The routes themselves are guarded too.
+  const visibleItems = SIDEBAR_ITEMS.filter(
+    (item) => item.isVisible !== false && (item.permission === null || can(item.permission)),
+  );
 
   const handleLogout = async () => {
     await logout();

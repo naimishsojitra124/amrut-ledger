@@ -30,10 +30,11 @@ export function useMilkTypesQuery(query?: MilkTypeListQuery) {
   });
 }
 
-export function useActiveMilkTypesQuery() {
+export function useActiveMilkTypesQuery(options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: milkTypeQueryKeys.active(),
     queryFn: () => milkTypeAPI.getActiveMilkTypes(),
+    enabled: options.enabled ?? true,
     refetchOnWindowFocus: false,
   });
 }

@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
 
 import { authAPI } from "@/services/auth.service";
+import { getApiErrorMessage } from "@/services/utils/apiConnector";
+import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/auth.store";
 import { Button } from "@/components/ui/button";
 
@@ -18,7 +20,24 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
   const [error, setError] = useState("");
+
+  /**
+   * Only offer the demo where one exists. A deployment without DEMO_MODE
+   * reports `demoMode: false` and the button never appears.
+   */
+  const demoConfig = useQuery({
+    queryKey: ["auth", "config"],
+    queryFn: authAPI.config,
+    staleTime: Infinity,
+    retry: false,
+    meta: { suppressErrorToast: true },
+  });
+
+  const demoCredentials = demoConfig.data?.demoMode
+    ? (demoConfig.data.demoCredentials ?? null)
+    : null;
 
   /*
    * If Login was reached because a protected route redirected here,
@@ -77,10 +96,37 @@ export default function Login() {
       navigate(getPostLoginPath(), {
         replace: true,
       });
-    } catch (err: any) {
-      setError(err.message || "Login failed.");
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Login failed."));
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Fills the form rather than bypassing it, so a reviewer sees the same login
+   * path any other user takes — and can read the credentials being used.
+   */
+  const handleUseDemoCredentials = async () => {
+    if (!demoCredentials) return;
+
+    setError("");
+    setMobileNumber(demoCredentials.mobileNumber);
+    setPassword(demoCredentials.password);
+    setGuestLoading(true);
+
+    try {
+      const response = await authAPI.login({
+        mobileNumber: demoCredentials.mobileNumber,
+        password: demoCredentials.password,
+      });
+
+      login(response.user, response.accessToken);
+      navigate(getPostLoginPath(), { replace: true });
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Could not start the demo."));
+    } finally {
+      setGuestLoading(false);
     }
   };
 
@@ -171,11 +217,46 @@ export default function Login() {
           <Button
             type="button"
             onClick={() => void handleLogin()}
-            disabled={loading || !mobileNumber || !password}
+            disabled={loading || guestLoading || !mobileNumber || !password}
             className="w-full rounded-lg py-5 text-white disabled:cursor-not-allowed"
           >
             {loading ? "Logging in..." : "Login"}
           </Button>
+
+          {demoCredentials && (
+            <>
+              <div className="flex items-center gap-3 pt-1">
+                <span className="h-px flex-1 bg-slate-200" />
+                <span className="text-xs text-slate-400">or</span>
+                <span className="h-px flex-1 bg-slate-200" />
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleUseDemoCredentials()}
+                disabled={loading || guestLoading}
+                className="w-full rounded-lg py-5 disabled:cursor-not-allowed"
+              >
+                {guestLoading ? "Signing in..." : "Sign in as guest"}
+              </Button>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <p className="font-medium text-slate-700">Demo credentials</p>
+
+                <p className="mt-1 font-mono">
+                  {demoCredentials.mobileNumber} / {demoCredentials.password}
+                </p>
+
+                <p className="mt-1.5 text-slate-500">
+                  Sample data with full access — try anything. Everything resets
+                  {demoConfig.data?.demoResetIntervalHours
+                    ? ` every ${demoConfig.data.demoResetIntervalHours} hours.`
+                    : " periodically."}
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

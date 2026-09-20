@@ -9,6 +9,8 @@ import {
   useSetOpeningBalanceMutation,
 } from "@/services/customer.service";
 import { formatCurrency } from "@/utils/format-currency";
+import { usePermissions } from "@/hooks/use-permissions";
+import { PERMISSIONS } from "@/config/permissions";
 
 /**
  * The balance a customer was already carrying when the shop moved off paper.
@@ -60,6 +62,9 @@ export default function OpeningBalanceCard({
   const setOpening = useSetOpeningBalanceMutation();
   const removeOpening = useRemoveOpeningBalanceMutation();
 
+  const { can } = usePermissions();
+  const canManage = can(PERMISSIONS.CUSTOMER_OPENING_BALANCE_MANAGE);
+
   const defaults = previousPeriod();
 
   const [amountText, setAmountText] = useState("");
@@ -108,7 +113,7 @@ export default function OpeningBalanceCard({
             </p>
           </div>
 
-          {!isLocked && (
+          {!isLocked && canManage && (
             <Button
               type="button"
               variant="outline"
@@ -140,6 +145,9 @@ export default function OpeningBalanceCard({
       </div>
     );
   }
+
+  // Nothing recorded and nothing this user can do about it — say nothing.
+  if (!canManage) return null;
 
   return (
     <div className="space-y-3 rounded-xl border border-dashed bg-white p-3 sm:p-4">

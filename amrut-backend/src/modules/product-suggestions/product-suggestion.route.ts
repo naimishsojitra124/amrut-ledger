@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { authenticate } from "@/app/middleware/authenticate";
-import { authorizeRoles } from "@/app/middleware/authorize";
+import { requirePermission } from "@/app/middleware/authorize";
+import { PERMISSIONS } from "@/app/auth/permissions";
 import {
   archiveProductSuggestionHandler,
   createProductSuggestionHandler,
@@ -15,13 +16,16 @@ import {
 export const productSuggestionRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", authenticate);
 
-  app.get("/active", getActiveProductSuggestionsHandler);
-  app.get("/", getProductSuggestionsHandler);
-  app.post("/", { preHandler: authorizeRoles("owner", "manager") }, createProductSuggestionHandler);
+  const canView = requirePermission(PERMISSIONS.PRODUCT_SUGGESTION_VIEW);
+  const canManage = requirePermission(PERMISSIONS.PRODUCT_SUGGESTION_MANAGE);
 
-  app.patch("/reorder", { preHandler: authorizeRoles("owner", "manager") }, reorderProductSuggestionsHandler);
-  app.get("/:id", getProductSuggestionByIdHandler);
-  app.patch("/:id", { preHandler: authorizeRoles("owner", "manager") }, updateProductSuggestionHandler);
-  app.patch("/:id/archive", { preHandler: authorizeRoles("owner", "manager") }, archiveProductSuggestionHandler);
-  app.patch("/:id/restore", { preHandler: authorizeRoles("owner", "manager") }, restoreProductSuggestionHandler);
+  app.get("/active", { preHandler: canView }, getActiveProductSuggestionsHandler);
+  app.get("/", { preHandler: canView }, getProductSuggestionsHandler);
+  app.post("/", { preHandler: canManage }, createProductSuggestionHandler);
+
+  app.patch("/reorder", { preHandler: canManage }, reorderProductSuggestionsHandler);
+  app.get("/:id", { preHandler: canView }, getProductSuggestionByIdHandler);
+  app.patch("/:id", { preHandler: canManage }, updateProductSuggestionHandler);
+  app.patch("/:id/archive", { preHandler: canManage }, archiveProductSuggestionHandler);
+  app.patch("/:id/restore", { preHandler: canManage }, restoreProductSuggestionHandler);
 };

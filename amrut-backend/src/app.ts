@@ -25,6 +25,15 @@ export async function buildApp() {
     },
   });
 
+  if (env.demoMode) {
+    app.log.warn(
+      { resetIntervalHours: env.demoResetIntervalHours },
+      "DEMO_MODE is on: anyone can sign in with the published guest password and " +
+        "has full read and write access. Every collection is dropped and re-seeded " +
+        "on a schedule. This deployment must point at a demo database, never the live one.",
+    );
+  }
+
   if (env.nodeEnv !== "production") {
     app.log.warn(
       { nodeEnv: env.nodeEnv },

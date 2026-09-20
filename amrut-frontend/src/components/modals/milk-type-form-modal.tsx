@@ -26,7 +26,10 @@ export function MilkTypeFormModal() {
   const id = settingsForm?.id ?? null;
   const isOpen = activeModal === "milkTypeForm";
 
-  const item = useMilkTypeQuery(id ?? undefined).data;
+  // Only load when this modal is the one on screen. `settingsForm.id` is
+  // shared by every settings modal, so an id belonging to another entity would
+  // otherwise be fetched as a milk type.
+  const item = useMilkTypeQuery(isOpen ? (id ?? undefined) : undefined).data;
 
   const create = useCreateMilkTypeMutation();
   const update = useUpdateMilkTypeMutation();

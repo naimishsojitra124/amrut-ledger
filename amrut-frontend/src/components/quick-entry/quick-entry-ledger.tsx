@@ -32,6 +32,8 @@ import { formatCurrency } from "@/utils/format-currency";
 import { formatDate } from "@/utils/format-date";
 
 import { useModalStore } from "@/store/modal.store";
+import { usePermissions } from "@/hooks/use-permissions";
+import { PERMISSIONS } from "@/config/permissions";
 import FullLedgerModal from "../modals/full-ledger-modal";
 
 import type { Customer } from "@/types/customer";
@@ -61,6 +63,7 @@ type LedgerLineItem = {
 
 type EntryRow = {
   id: string;
+  entryId: string;
   entryIndex: number;
   time: Date;
   createdByName: string;
@@ -107,6 +110,13 @@ export default function QuickEntryLedger({
 
   const updateEntryMutation = useUpdateDailyLedgerEntryMutation();
   const deleteEntryMutation = useDeleteDailyLedgerEntryMutation();
+
+  // Correcting an entry and removing one are separate permissions: counter
+  // staff fix their own typos, but taking a charge off the ledger is a
+  // manager's call.
+  const { can } = usePermissions();
+  const canEditEntries = can(PERMISSIONS.LEDGER_ENTRY_UPDATE);
+  const canDeleteEntries = can(PERMISSIONS.LEDGER_ENTRY_DELETE);
 
   const [editingEntry, setEditingEntry] =
     useState<DailyLedgerEntryResponse | null>(null);
@@ -187,7 +197,7 @@ export default function QuickEntryLedger({
       .map((entry) => {
         const milkRows: LedgerLineItem[] = entry.milkEntries.map(
           (milk, index) => ({
-            id: `${entry.entryIndex}-milk-${index}`,
+            id: `${entry.id}-milk-${index}`,
             kind: "milk",
             title: milk.milkTypeName,
             subtitle: `${milk.litres.toFixed(2)} Ltr`,
@@ -197,7 +207,7 @@ export default function QuickEntryLedger({
 
         const productRows: LedgerLineItem[] = entry.productEntries.map(
           (product, index) => ({
-            id: `${entry.entryIndex}-product-${index}`,
+            id: `${entry.id}-product-${index}`,
             kind: "product",
             title: product.itemName,
             subtitle: `${product.quantity} Qty`,
@@ -206,7 +216,8 @@ export default function QuickEntryLedger({
         );
 
         return {
-          id: `${entry.entryIndex}-${entry.createdAt}`,
+          id: entry.id,
+          entryId: entry.id,
           entryIndex: entry.entryIndex,
           time: new Date(entry.createdAt),
           createdByName: entry.createdBy.fullName,
@@ -237,12 +248,16 @@ export default function QuickEntryLedger({
   const hasLedger = entryRows.length > 0;
   const ledgerDateLabel = formatDate(summary.ledgerDate);
 
-  function getOriginalEntry(entryIndex: number) {
-    return ledger?.entries.find((entry) => entry.entryIndex === entryIndex);
+  /**
+   * Looked up by id, not position: another device may have removed an entry
+   * since this page loaded, which would shift every index after it.
+   */
+  function getOriginalEntry(entryId: string) {
+    return ledger?.entries.find((entry) => entry.id === entryId);
   }
 
-  function handleEditClick(entryIndex: number) {
-    const entry = getOriginalEntry(entryIndex);
+  function handleEditClick(entryId: string) {
+    const entry = getOriginalEntry(entryId);
 
     if (!entry) {
       return;
@@ -269,8 +284,8 @@ export default function QuickEntryLedger({
     openModal("editLedger");
   }
 
-  function handleDeleteClick(entryIndex: number) {
-    const entry = getOriginalEntry(entryIndex);
+  function handleDeleteClick(entryId: string) {
+    const entry = getOriginalEntry(entryId);
 
     if (!entry) {
       return;
@@ -397,7 +412,7 @@ export default function QuickEntryLedger({
       {
         customerId: customer.id,
         date: selectedDate,
-        entryIndex: editingEntry.entryIndex,
+        entryId: editingEntry.id,
         payload,
       },
       {
@@ -419,7 +434,7 @@ export default function QuickEntryLedger({
       {
         customerId: customer.id,
         date: selectedDate,
-        entryIndex: deletingEntry.entryIndex,
+        entryId: deletingEntry.id,
       },
       {
         onSuccess: () => {
@@ -489,37 +504,39 @@ export default function QuickEntryLedger({
                           </div>
 
                           <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              className="h-8 w-8"
-                              disabled={
-                                updateEntryMutation.isPending ||
-                                deleteEntryMutation.isPending
-                              }
-                              onClick={() => handleEditClick(entry.entryIndex)}
-                              aria-label="Edit entry"
-                            >
-                              <Edit3 className="h-4 w-4" />
-                            </Button>
+                            {canEditEntries && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={
+                                  updateEntryMutation.isPending ||
+                                  deleteEntryMutation.isPending
+                                }
+                                onClick={() => handleEditClick(entry.entryId)}
+                                aria-label="Edit entry"
+                              >
+                                <Edit3 className="h-4 w-4" />
+                              </Button>
+                            )}
 
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              className="h-8 w-8 text-red-600 hover:text-red-600"
-                              disabled={
-                                updateEntryMutation.isPending ||
-                                deleteEntryMutation.isPending
-                              }
-                              onClick={() =>
-                                handleDeleteClick(entry.entryIndex)
-                              }
-                              aria-label="Delete entry"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {canDeleteEntries && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8 text-red-600 hover:text-red-600"
+                                disabled={
+                                  updateEntryMutation.isPending ||
+                                  deleteEntryMutation.isPending
+                                }
+                                onClick={() => handleDeleteClick(entry.entryId)}
+                                aria-label="Delete entry"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </div>
 

@@ -18,7 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import { useAuth } from "@/hooks/use-auth";
+import { usePermissions } from "@/hooks/use-permissions";
+import { PERMISSIONS } from "@/config/permissions";
 
 import {
   useArchiveUserMutation,
@@ -54,10 +55,35 @@ const ROLE_META: Record<
     label: "Employee",
     description: "Can add entries, view customers and collect payments.",
   },
+  guest: {
+    label: "Guest",
+    description: "The shared demo account. Cannot be edited.",
+  },
 };
 
+/**
+ * Roles a real account can be given.
+ *
+ * `guest` is deliberately absent: it belongs to the public demo account, and
+ * the API refuses to assign it. Offering it here would only produce a 403.
+ */
+const ASSIGNABLE_ROLES = ["owner", "manager", "employee"] as const;
+
+/** Tolerates a role this build does not know about rather than crashing. */
+function roleMeta(role: UserRole) {
+  return (
+    ROLE_META[role] ?? {
+      label: role,
+      description: "",
+    }
+  );
+}
+
 export default function UserFormModal() {
-  const { isOwner } = useAuth();
+  // Gate on the permission, not on being literally the owner: the demo
+  // account holds these rights too, and the matrix is the source of truth.
+  const { can } = usePermissions();
+  const canChangeRole = can(PERMISSIONS.USER_CHANGE_ROLE);
 
   const activeModal = useModalStore((state) => state.activeModal);
   const settingsForm = useModalStore((state) => state.settingsForm);
@@ -70,6 +96,13 @@ export default function UserFormModal() {
   const userQuery = useUserQuery(id, {
     enabled: isOpen && Boolean(id),
   });
+
+  /**
+   * The shared demo account cannot be changed — the API refuses, because
+   * renaming or archiving it would lock out the next visitor. Saying so here
+   * is better than letting someone fill the form and hit a 403.
+   */
+  const isDemoAccount = userQuery.data?.role === "guest";
 
   const createUserMutation = useCreateUserMutation();
 
@@ -89,6 +122,20 @@ export default function UserFormModal() {
   const [mobileNumber, setMobileNumber] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRole>("owner");
+
+  /**
+   * The roles offered in the picker.
+   *
+   * Normally just the assignable ones. If the account being viewed holds a
+   * role that cannot be assigned — the demo account does — it is added so the
+   * select shows what the account actually is instead of sitting blank.
+   */
+  const roleOptions: UserRole[] = ASSIGNABLE_ROLES.some(
+    (assignable) => assignable === role,
+  )
+    ? [...ASSIGNABLE_ROLES]
+    : [role, ...ASSIGNABLE_ROLES];
+
   const [status, setStatus] = useState<UserStatus>("active");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -295,6 +342,14 @@ export default function UserFormModal() {
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="space-y-5 px-2 py-3 sm:p-4">
+            {isDemoAccount && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                This is the shared demo account. It cannot be changed — everyone
+                exploring the demo signs in with it. Try editing one of the
+                other accounts instead.
+              </div>
+            )}
+
             {isLoadingUser ? (
               <div className="flex min-h-40 items-center justify-center text-sm text-neutral-500">
                 Loading user details...
@@ -363,22 +418,22 @@ export default function UserFormModal() {
                     <Select
                       value={role}
                       onValueChange={(value) => setRole(value as UserRole)}
-                      disabled={!isOwner || isBusy}
+                      disabled={!canChangeRole || isBusy || isDemoAccount}
                     >
                       <SelectTrigger className="h-11 w-full">
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
 
                       <SelectContent position="popper">
-                        <SelectItem value="owner">Owner</SelectItem>
-
-                        <SelectItem value="manager">Manager</SelectItem>
-
-                        <SelectItem value="employee">Employee</SelectItem>
+                        {roleOptions.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {roleMeta(option).label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
 
-                    {!isOwner && (
+                    {!canChangeRole && (
                       <p className="text-xs text-neutral-500">
                         Only the owner can change roles.
                       </p>
@@ -504,7 +559,7 @@ export default function UserFormModal() {
                       <p className="text-xs text-neutral-500">Current Role</p>
 
                       <p className="mt-1 text-sm font-medium text-neutral-900">
-                        {ROLE_META[user.role].label}
+                        {roleMeta(user.role).label}
                       </p>
                     </div>
                   </div>
@@ -528,7 +583,7 @@ export default function UserFormModal() {
           <Button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={isBusy || isLoadingUser}
+            disabled={isBusy || isLoadingUser || isDemoAccount}
             className="w-full sm:w-auto"
           >
             {isCreate ? "Create User" : "Save Changes"}

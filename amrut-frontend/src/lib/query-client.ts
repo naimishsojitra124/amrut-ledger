@@ -118,7 +118,15 @@ export const queryClient = new QueryClient({
       retry: shouldRetry,
       staleTime: 1000 * 60,
       gcTime: 1000 * 60 * 5,
-      refetchOnWindowFocus: false,
+      /**
+       * Refetch when a device is brought back to the front.
+       *
+       * This is the moment staleness actually matters in a shop: someone picks
+       * their tablet back up and needs to see what the other counter recorded
+       * while it was face-down. `staleTime` still applies, so a tab flicked
+       * away and back does not re-request anything.
+       */
+      refetchOnWindowFocus: true,
       refetchOnReconnect: true,
       refetchOnMount: false,
       // Deliberately no global `placeholderData`: list queries opt into

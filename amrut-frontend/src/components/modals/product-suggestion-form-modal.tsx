@@ -26,10 +26,10 @@ export function ProductSuggestionFormModal() {
   const id = settingsForm?.id ?? null;
   const isOpen = activeModal === "productSuggestionForm";
 
-  const item = useProductSuggestionsQuery({
-    page: 1,
-    limit: 100,
-  }).data?.items.find((product) => product.id === id);
+  const item = useProductSuggestionsQuery(
+    { page: 1, limit: 100 },
+    { enabled: isOpen },
+  ).data?.items.find((product) => product.id === id);
 
   const create = useCreateProductSuggestionMutation();
 

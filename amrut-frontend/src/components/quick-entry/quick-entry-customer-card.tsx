@@ -202,14 +202,16 @@ export default function QuickEntryCustomerCard({
                 </span>
               </div>
 
-              <div className="flex min-w-0 items-center gap-2">
-                <Phone className="h-4 w-4 shrink-0 text-neutral-500" />
+              {customer?.mobileNumber && (
+                <div className="flex min-w-0 items-center gap-2">
+                  <Phone className="h-4 w-4 shrink-0 text-neutral-500" />
 
-                <span className="truncate">
-                  Mobile:{" "}
-                  <span className="font-medium">{customer.mobileNumber}</span>
-                </span>
-              </div>
+                  <span className="truncate">
+                    Mobile:{" "}
+                    <span className="font-medium">{customer.mobileNumber}</span>
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         ) : (

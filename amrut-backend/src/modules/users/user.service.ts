@@ -13,6 +13,8 @@ import type {
   UserStatsResponse,
 } from "./user.types";
 import { env } from "@/config/env";
+import { assertCanActOnUser, assertNotDemoAccount } from "@/app/middleware/authorize";
+import type { UserRole } from "../../../generated/prisma/enums";
 
 function createHttpError(statusCode: number, message: string) {
   const error = new Error(message) as Error & { statusCode: number };
@@ -217,8 +219,12 @@ export async function getUserStats(
 export async function createUser(
   app: FastifyInstance,
   input: CreateUserRequest,
+  actor: { sub: string; role: UserRole },
 ): Promise<UserResponse> {
   const prisma = getPrisma(app);
+
+  // Creating an account more senior than your own is an escalation route.
+  assertCanActOnUser(actor, { id: "", role: input.role });
 
   const mobileNumber = input.mobileNumber.trim();
   const email = input.email.trim().toLowerCase();
@@ -247,6 +253,7 @@ export async function updateUser(
   app: FastifyInstance,
   id: string,
   input: UpdateUserRequest,
+  actor: { sub: string; role: UserRole },
 ): Promise<UserResponse> {
   const prisma = getPrisma(app);
 
@@ -257,6 +264,9 @@ export async function updateUser(
   if (!existing) {
     throw createHttpError(404, "User not found");
   }
+
+  assertCanActOnUser(actor, { id: existing.id, role: existing.role });
+  assertNotDemoAccount(existing);
 
   const nextMobileNumber =
     input.mobileNumber !== undefined ? input.mobileNumber.trim() : undefined;
@@ -277,10 +287,19 @@ export async function updateUser(
   return normalizeUser(user);
 }
 
+/**
+ * Sets another user's password without knowing the current one.
+ *
+ * The seniority check is the important part: holding the reset permission must
+ * never let someone reach an account at or above their own level. A manager
+ * resetting the owner's password and then signing in as them would otherwise be
+ * a complete takeover of the system.
+ */
 export async function changeUserPassword(
   app: FastifyInstance,
   id: string,
   input: ChangeUserPasswordRequest,
+  actor: { sub: string; role: UserRole },
 ): Promise<UserResponse> {
   const prisma = getPrisma(app);
 
@@ -291,6 +310,9 @@ export async function changeUserPassword(
   if (!existing) {
     throw createHttpError(404, "User not found");
   }
+
+  assertCanActOnUser(actor, { id: existing.id, role: existing.role });
+  assertNotDemoAccount(existing);
 
   const passwordHash = await bcrypt.hash(input.password, env.bcryptSaltRounds);
 
@@ -312,6 +334,7 @@ export async function changeUserRole(
   app: FastifyInstance,
   id: string,
   input: ChangeUserRoleRequest,
+  actor: { sub: string; role: UserRole },
 ): Promise<UserResponse> {
   const prisma = getPrisma(app);
 
@@ -321,6 +344,17 @@ export async function changeUserRole(
 
   if (!existing) {
     throw createHttpError(404, "User not found");
+  }
+
+  assertCanActOnUser(actor, { id: existing.id, role: existing.role });
+  assertNotDemoAccount(existing);
+
+  // Granting a role you do not hold yourself would be an escalation, and
+  // changing your own role could strip the last owner out of the system.
+  assertCanActOnUser(actor, { id: existing.id, role: input.role });
+
+  if (actor.sub === id && input.role !== existing.role) {
+    throw createHttpError(403, "You cannot change your own role");
   }
 
   if (existing.role === "owner" && input.role !== "owner") {
@@ -342,6 +376,7 @@ export async function changeUserRole(
 export async function archiveUser(
   app: FastifyInstance,
   id: string,
+  actor: { sub: string; role: UserRole },
 ): Promise<UserResponse> {
   const prisma = getPrisma(app);
 
@@ -351,6 +386,13 @@ export async function archiveUser(
 
   if (!existing) {
     throw createHttpError(404, "User not found");
+  }
+
+  assertCanActOnUser(actor, { id: existing.id, role: existing.role });
+  assertNotDemoAccount(existing);
+
+  if (actor.sub === id) {
+    throw createHttpError(403, "You cannot archive your own account");
   }
 
   if (existing.status === "inactive") {
@@ -375,9 +417,56 @@ export async function archiveUser(
   return normalizeUser(user);
 }
 
+/**
+ * Changing your own password.
+ *
+ * Requires the current password, so someone who walks up to an unlocked device
+ * cannot lock the real user out of their own account. Every session is revoked
+ * afterwards, which signs out any device still holding the old credentials.
+ */
+export async function changeOwnPassword(
+  app: FastifyInstance,
+  userId: string,
+  input: { currentPassword: string; newPassword: string },
+): Promise<{ success: true }> {
+  const prisma = getPrisma(app);
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+
+  if (!user) {
+    throw createHttpError(401, "Unauthorized");
+  }
+
+  const currentPasswordValid = await bcrypt.compare(input.currentPassword, user.passwordHash);
+
+  if (!currentPasswordValid) {
+    throw createHttpError(400, "Your current password is incorrect");
+  }
+
+  if (await bcrypt.compare(input.newPassword, user.passwordHash)) {
+    throw createHttpError(400, "Choose a password you have not used before");
+  }
+
+  const passwordHash = await bcrypt.hash(input.newPassword, env.bcryptSaltRounds);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      passwordHash,
+      refreshTokenHash: null,
+      sessions: { updateMany: { where: { revokedAt: null }, data: { revokedAt: new Date() } } },
+      lockUntil: null,
+      failedLoginAttempts: 0,
+    },
+  });
+
+  return { success: true };
+}
+
 export async function restoreUser(
   app: FastifyInstance,
   id: string,
+  actor: { sub: string; role: UserRole },
 ): Promise<UserResponse> {
   const prisma = getPrisma(app);
 
@@ -388,6 +477,9 @@ export async function restoreUser(
   if (!existing) {
     throw createHttpError(404, "User not found");
   }
+
+  assertCanActOnUser(actor, { id: existing.id, role: existing.role });
+  assertNotDemoAccount(existing);
 
   if (existing.status === "active") {
     throw createHttpError(409, "User is already active");

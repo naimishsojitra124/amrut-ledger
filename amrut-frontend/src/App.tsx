@@ -9,10 +9,11 @@ import "./App.css";
 import { RootLayout } from "./layouts/root-layout";
 import { AppLayout } from "./layouts/app-layout";
 import ProtectedRoute from "./components/ProtectedRoute";
+import RequirePermission from "./components/RequirePermission";
+import { PERMISSIONS } from "@/config/permissions";
 import AuthBootstrap from "./components/AuthBootstrap";
 import { SuspenseLoader } from "./components/common/suspense-loader";
 import { OfflineSyncManager } from "./components/offline-sync-manager";
-import { AppModals } from "./components/modals";
 import { useAuthStore } from "@/store/auth.store";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -22,6 +23,7 @@ const Bills = lazy(() => import("@/pages/bills"));
 const Settings = lazy(() => import("@/pages/settings"));
 const Login = lazy(() => import("@/pages/login"));
 const FunctionOrders = lazy(() => import("@/pages/function-orders"));
+const NotFound = lazy(() => import("@/pages/not-found"));
 
 export const router = createBrowserRouter([
   {
@@ -48,34 +50,52 @@ export const router = createBrowserRouter([
                 path: "dashboard",
                 element: <Dashboard />,
               },
+              // Each page declares the permission it needs. The sidebar hides
+              // links a user cannot follow; this stops the URL being reached
+              // directly. The API enforces the same rules independently.
               {
-                path: "customers",
-                element: <Customers />,
+                element: (
+                  <RequirePermission permission={PERMISSIONS.CUSTOMER_VIEW} />
+                ),
+                children: [{ path: "customers", element: <Customers /> }],
               },
               {
-                path: "quick-entry",
-                element: <QuickEntry />,
+                element: (
+                  <RequirePermission
+                    permission={PERMISSIONS.LEDGER_ENTRY_CREATE}
+                  />
+                ),
+                children: [{ path: "quick-entry", element: <QuickEntry /> }],
               },
               {
-                path: "bills",
-                element: <Bills />,
+                element: <RequirePermission permission={PERMISSIONS.BILL_VIEW} />,
+                children: [{ path: "bills", element: <Bills /> }],
+              },
+              {
+                element: (
+                  <RequirePermission
+                    permission={PERMISSIONS.FUNCTION_ORDER_VIEW}
+                  />
+                ),
+                children: [
+                  { path: "function-orders", element: <FunctionOrders /> },
+                ],
               },
               {
                 path: "settings",
                 element: <Settings />,
               },
-              {
-                path: "function-orders",
-                element: <FunctionOrders />,
-              },
+
             ],
           },
         ],
       },
 
+      // Reached when nobody is signed in: no shell to keep them in, so the
+      // page stands alone and points at the login screen.
       {
         path: "*",
-        element: <Navigate to="/dashboard" replace />,
+        element: <NotFound />,
       },
     ],
   },
@@ -107,7 +127,6 @@ function App() {
       ) : (
         <>
           <OfflineSyncManager />
-          <AppModals />
 
           <SuspenseLoader>
             <RouterProvider router={router} />

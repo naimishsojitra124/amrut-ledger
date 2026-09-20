@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import type { FastifyInstance } from "fastify";
 import { env } from "@/config/env";
+import { getPermissionsForRole } from "@/app/auth/permissions";
+import { DEMO_ACCOUNT } from "@/modules/demo/demo-reset.service";
 import type { UserRole, UserStatus } from "../../../generated/prisma/enums";
 import type { User } from "../../../generated/prisma/client";
 import type {
@@ -38,6 +40,13 @@ function prismaOf(app: FastifyInstance) {
   };
 }
 
+/**
+ * The signed-in user, with the permissions their role grants.
+ *
+ * Sending the resolved list means the UI never keeps its own copy of the access
+ * matrix: `app/auth/permissions.ts` stays the only place access is decided, and
+ * the two sides cannot drift apart.
+ */
 function normalizeUser(
   user: Pick<User, "id" | "fullName" | "mobileNumber" | "email" | "role" | "status">,
 ): AuthUser {
@@ -48,6 +57,7 @@ function normalizeUser(
     email: user.email,
     role: user.role as UserRole,
     status: user.status as UserStatus,
+    permissions: [...getPermissionsForRole(user.role as UserRole)],
   };
 }
 
@@ -173,6 +183,13 @@ export async function login(
   const passwordValid = await comparePassword(input.password, user.passwordHash);
 
   if (!passwordValid) {
+    // The shared demo account is exempt from lockout. It is one account used by
+    // everyone, so a handful of mistyped attempts would otherwise take the
+    // whole demo offline for the next visitor.
+    if (user.role === "guest") {
+      throw createHttpError(401, "Invalid mobile number or password");
+    }
+
     const nextAttempts = (user.failedLoginAttempts ?? 0) + 1;
     const shouldLock = nextAttempts >= MAX_LOGIN_ATTEMPTS;
 
@@ -218,6 +235,14 @@ export async function login(
     user: normalizeUser(updatedUser),
     accessToken,
     refreshToken,
+  };
+}
+
+/** Shown on the demo login screen so a reviewer can sign straight in. */
+export function getDemoCredentials() {
+  return {
+    mobileNumber: DEMO_ACCOUNT.mobileNumber,
+    password: env.demoGuestPassword,
   };
 }
 

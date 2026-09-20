@@ -10,6 +10,8 @@ import {
 } from "@/services/customer.service";
 import { formatCurrency } from "@/utils/format-currency";
 import OpeningBalanceCard from "@/components/customers/opening-balance-card";
+import { usePermissions } from "@/hooks/use-permissions";
+import { PERMISSIONS } from "@/config/permissions";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB");
 
@@ -25,6 +27,11 @@ export default function CustomerAccountTab({
   const statement = useCustomerStatementQuery(customerId);
   const topUp = useTopUpDepositMutation();
   const refund = useRefundDepositMutation();
+
+  // Moving a deposit is real money leaving or entering the drawer, so it sits
+  // with the roles that can already correct money.
+  const { can } = usePermissions();
+  const canManageDeposit = can(PERMISSIONS.CUSTOMER_DEPOSIT_MANAGE);
 
   const [amountText, setAmountText] = useState("");
   const [notes, setNotes] = useState("");
@@ -99,7 +106,8 @@ export default function CustomerAccountTab({
           </p>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-[140px_minmax(0,1fr)_auto_auto]">
+        {canManageDeposit && (
+          <div className="grid gap-2 sm:grid-cols-[140px_minmax(0,1fr)_auto_auto]">
           <Input
             value={amountText}
             onChange={(event) => setAmountText(event.target.value)}
@@ -141,9 +149,10 @@ export default function CustomerAccountTab({
             )}
             Refund
           </Button>
-        </div>
+          </div>
+        )}
 
-        {!isValidAmount && amountText && (
+        {canManageDeposit && !isValidAmount && amountText && (
           <p className="text-xs text-red-600">
             Enter an amount greater than ₹0.
           </p>

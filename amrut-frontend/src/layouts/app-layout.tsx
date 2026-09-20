@@ -6,6 +6,8 @@ import { useSidebar } from "@/hooks/use-sidebar";
 
 import { Button } from "@/components/ui/button";
 import Sidebar from "@/components/Sidebar";
+import DemoBanner from "@/components/common/demo-banner";
+import { AppModals } from "@/components/modals";
 
 export function AppLayout() {
   const healthQuery = useServiceHealthQuery();
@@ -17,7 +19,13 @@ export function AppLayout() {
     <div className="flex h-dvh w-full overflow-hidden bg-[#F8FAFC]">
       <Sidebar />
 
+      {/* Mounted here rather than at the app root so the login screen does
+          not carry a dozen modals — and the queries behind them. */}
+      <AppModals />
+
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <DemoBanner />
+
         {!healthQuery.isLoading && (
           <div
             className={[

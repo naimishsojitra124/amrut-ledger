@@ -3,7 +3,7 @@ import {
   addDailyLedgerEntrySchema,
   createDailyLedgerSchema,
   dailyLedgerDateParamSchema,
-  dailyLedgerEntryIndexParamSchema,
+  dailyLedgerEntryParamSchema,
   dailyLedgerListQuerySchema,
   customerIdParamSchema,
   updateDailyLedgerEntrySchema,
@@ -124,7 +124,7 @@ export async function updateLedgerEntryHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const params = dailyLedgerEntryIndexParamSchema.parse(request.params);
+  const params = dailyLedgerEntryParamSchema.parse(request.params);
   const body = updateDailyLedgerEntrySchema.parse(request.body);
   const performedById = getCurrentUserId(request);
 
@@ -133,7 +133,7 @@ export async function updateLedgerEntryHandler(
     params.customerId,
     performedById,
     params.date,
-    params.entryIndex,
+    params.entryId,
     body,
   );
 
@@ -144,7 +144,7 @@ export async function deleteLedgerEntryHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const params = dailyLedgerEntryIndexParamSchema.parse(request.params);
+  const params = dailyLedgerEntryParamSchema.parse(request.params);
   const performedById = getCurrentUserId(request);
 
   const result = await deleteLedgerEntry(
@@ -152,7 +152,7 @@ export async function deleteLedgerEntryHandler(
     params.customerId,
     performedById,
     params.date,
-    params.entryIndex,
+    params.entryId,
   );
 
   return reply.send(result);

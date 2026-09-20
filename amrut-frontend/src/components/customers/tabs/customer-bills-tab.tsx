@@ -27,6 +27,8 @@ import { useGenerateBillMutation } from "@/services/bill.service";
 import { useModalStore } from "@/store/modal.store";
 import type { BillStatus, CustomerBillItemResponse } from "@/types/customer";
 import { formatCurrency } from "@/utils/format-currency";
+import { usePermissions } from "@/hooks/use-permissions";
+import { PERMISSIONS } from "@/config/permissions";
 import { generateBillPdf } from "@/utils/generate-bill-pdf";
 
 type CustomerBillPdfCustomer = {
@@ -142,6 +144,11 @@ function getMonthLabel(year: number, month: number) {
 }
 
 export default function CustomerBillsTab({ customerId, customer }: Props) {
+  // Generating a bill closes off a month and carries balances forward, so it
+  // sits with the roles that own the books rather than the counter.
+  const { can } = usePermissions();
+  const canGenerateBill = can(PERMISSIONS.BILL_GENERATE);
+
   const openGenerateBill = useModalStore((state) => state.openGenerateBill);
 
   const openPayment = useModalStore((state) => state.openPayment);
@@ -282,19 +289,21 @@ export default function CustomerBillsTab({ customerId, customer }: Props) {
             </p>
           </div>
 
-          <Button
-            type="button"
-            className="w-full gap-2 sm:w-auto"
-            onClick={handleGenerateBill}
-            disabled={generateBillMutation.isPending}
-          >
-            {generateBillMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ScrollText className="h-4 w-4" />
-            )}
-            Generate Bill
-          </Button>
+          {canGenerateBill && (
+            <Button
+              type="button"
+              className="w-full gap-2 sm:w-auto"
+              onClick={handleGenerateBill}
+              disabled={generateBillMutation.isPending}
+            >
+              {generateBillMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ScrollText className="h-4 w-4" />
+              )}
+              Generate Bill
+            </Button>
+          )}
         </div>
 
         {isPending ? (

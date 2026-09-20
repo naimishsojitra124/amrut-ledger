@@ -149,7 +149,7 @@ export function useCardsQuery() {
   });
 }
 
-export function useAvailableCardsQuery() {
+export function useAvailableCardsQuery(options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: AVAILABLE_ROOT_KEY,
 
@@ -166,6 +166,7 @@ export function useAvailableCardsQuery() {
       return normalizeCardsResponse(response.data);
     },
 
+    enabled: options.enabled ?? true,
     staleTime: QUERY_STALE_TIMES.availableCards,
     gcTime: QUERY_GC_TIMES.standard,
     refetchInterval: QUERY_REFETCH_INTERVALS.availableCards,
@@ -177,7 +178,7 @@ export function useCardStatsQuery() {
   return useCardsQuery();
 }
 
-export function useCardNumberingQuery() {
+export function useCardNumberingQuery(options: { enabled?: boolean } = {}) {
   return useQuery<CardNumberingResponse>({
     queryKey: NUMBERING_ROOT_KEY,
 
@@ -194,6 +195,7 @@ export function useCardNumberingQuery() {
       return response.data;
     },
 
+    enabled: options.enabled ?? true,
     staleTime: QUERY_STALE_TIMES.cardNumbering,
     gcTime: QUERY_GC_TIMES.standard,
     ...STANDARD_QUERY_BEHAVIOR,

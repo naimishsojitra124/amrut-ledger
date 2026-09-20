@@ -5,12 +5,13 @@ meta {
 }
 
 get {
-  url: https://amrut-ledger.onrender.com/health/db
+  url: http://localhost:5000/health/db
   body: none
   auth: inherit
 }
 
 settings {
   encodeUrl: false
+  timeout: 0
   forwardAuthorizationHeader: false
 }

@@ -52,6 +52,8 @@ export interface DailyLedgerUserSummaryResponse {
 }
 
 export interface DailyLedgerEntryResponse {
+  /** Stable identifier. Use this to edit or delete, never `entryIndex`. */
+  id: string;
   entryIndex: number;
   createdAt: string;
   createdBy: DailyLedgerUserSummaryResponse;

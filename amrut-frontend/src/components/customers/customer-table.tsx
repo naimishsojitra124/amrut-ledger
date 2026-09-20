@@ -56,10 +56,14 @@ import {
   useRestoreCustomerMutation,
 } from "@/services/customer.service";
 import { useModalStore } from "@/store/modal.store";
+import { usePermissions } from "@/hooks/use-permissions";
+import { PERMISSIONS } from "@/config/permissions";
 import type { CustomerListItemResponse } from "@/types/customer";
 import { formatCurrency } from "@/utils/format-currency";
 import { formatDate } from "@/utils/format-date";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { AVATAR_CLASSES } from "../settings/tabs/users-tab";
+import { cn } from "@/lib/utils";
 
 type CustomerRow = CustomerListItemResponse;
 
@@ -109,6 +113,9 @@ export default function CustomerTable({
   onReopenCustomer,
   onAddCustomer,
 }: CustomerTableProps) {
+  const { can } = usePermissions();
+  const canCreateCustomer = can(PERMISSIONS.CUSTOMER_CREATE);
+
   const [searchText, setSearchText] = useState("");
   const search = useDebouncedValue(searchText);
 
@@ -292,7 +299,8 @@ export default function CustomerTable({
   function handleReopenCustomer(customer: CustomerRow) {
     openConfirmation({
       title: `Reopen ${customer.fullName}?`,
-      description: "This customer will become active again and can be used in normal customer workflows.",
+      description:
+        "This customer will become active again and can be used in normal customer workflows.",
       confirmLabel: "Reopen Customer",
       successMessage: "Customer reopened",
       onConfirm: () =>
@@ -334,10 +342,20 @@ export default function CustomerTable({
           const primaryMilk =
             customer.milkTypes.find((item) => item.isDefault) ?? null;
 
+          const avatarClass =
+            AVATAR_CLASSES[
+              (pagination.pageIndex * pagination.pageSize + row.index) %
+                AVATAR_CLASSES.length
+            ];
+
           return (
             <div className="flex min-w-0 items-center justify-start gap-2 sm:gap-3">
               <Avatar className="h-8 w-8 shrink-0" aria-hidden="true">
-                <AvatarFallback>{initials}</AvatarFallback>
+                <AvatarFallback
+                  className={cn("text-sm font-semibold", avatarClass)}
+                >
+                  {initials}
+                </AvatarFallback>
               </Avatar>
 
               <div className="min-w-0 text-left">
@@ -523,6 +541,8 @@ export default function CustomerTable({
       openCustomerEdit,
       restoreCustomerMutation.isPending,
       openConfirmation,
+      pagination.pageIndex,
+      pagination.pageSize,
     ],
   );
 
@@ -663,10 +683,12 @@ export default function CustomerTable({
               <span className="hidden sm:inline">Reset</span>
             </Button>
 
-            <Button onClick={openCreateCustomer} type="button" size="default">
-              <Plus className="h-4 w-4" />
-              <span>Add Customer</span>
-            </Button>
+            {canCreateCustomer && (
+              <Button onClick={openCreateCustomer} type="button" size="default">
+                <Plus className="h-4 w-4" />
+                <span>Add Customer</span>
+              </Button>
+            )}
           </div>
         </div>
 

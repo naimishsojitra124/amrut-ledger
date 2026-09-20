@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { authenticate } from "@/app/middleware/authenticate";
-import { authorizeRoles } from "@/app/middleware/authorize";
+import { requirePermission } from "@/app/middleware/authorize";
+import { PERMISSIONS } from "@/app/auth/permissions";
 import {
   archiveMilkTypeHandler,
   createMilkTypeHandler,
@@ -14,12 +15,15 @@ import {
 export const milkTypeRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", authenticate);
 
-  app.get("/active", getActiveMilkTypesHandler);
-  app.get("/", getMilkTypesHandler);
-  app.post("/", { preHandler: authorizeRoles("owner", "manager") }, createMilkTypeHandler);
+  const canView = requirePermission(PERMISSIONS.MILK_TYPE_VIEW);
+  const canManage = requirePermission(PERMISSIONS.MILK_TYPE_MANAGE);
 
-  app.get("/:id", getMilkTypeByIdHandler);
-  app.patch("/:id", { preHandler: authorizeRoles("owner", "manager") }, updateMilkTypeHandler);
-  app.patch("/:id/archive", { preHandler: authorizeRoles("owner", "manager") }, archiveMilkTypeHandler);
-  app.patch("/:id/restore", { preHandler: authorizeRoles("owner", "manager") }, restoreMilkTypeHandler);
+  app.get("/active", { preHandler: canView }, getActiveMilkTypesHandler);
+  app.get("/", { preHandler: canView }, getMilkTypesHandler);
+  app.post("/", { preHandler: canManage }, createMilkTypeHandler);
+
+  app.get("/:id", { preHandler: canView }, getMilkTypeByIdHandler);
+  app.patch("/:id", { preHandler: canManage }, updateMilkTypeHandler);
+  app.patch("/:id/archive", { preHandler: canManage }, archiveMilkTypeHandler);
+  app.patch("/:id/restore", { preHandler: canManage }, restoreMilkTypeHandler);
 };
