@@ -10,6 +10,7 @@ import type {
   ProductSuggestionResponse,
   UpdateProductSuggestionRequest,
 } from "./product-suggestion.types";
+import { searchTerm } from "@/app/db/search";
 
 interface ProductSuggestionRecord {
   id: string;
@@ -154,7 +155,7 @@ export async function getProductSuggestions(
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
   const skip = (page - 1) * limit;
-  const where = buildSearchWhere(query.search?.trim()) ?? {};
+  const where = buildSearchWhere(searchTerm(query.search)) ?? {};
 
   const [totalItems, items] = await Promise.all([
     prisma.productSuggestion.count({ where }),

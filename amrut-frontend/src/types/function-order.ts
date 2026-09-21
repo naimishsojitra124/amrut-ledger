@@ -32,10 +32,6 @@ export type FunctionOrderItem = {
   unit: string;
   unitPrice: number;
 
-  /**
-   * Kept for compatibility with existing orders/data.
-   * New return activity should be represented through movements.
-   */
   returnedQuantity: number;
   returnNote: string;
 

@@ -7,6 +7,7 @@ import type {
   MilkTypeResponse,
   UpdateMilkTypeRequest,
 } from "./milk-type.types";
+import { searchTerm } from "@/app/db/search";
 
 function createHttpError(statusCode: number, message: string) {
   const error = new Error(message) as Error & { statusCode: number };
@@ -101,7 +102,7 @@ export async function getMilkTypes(
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
   const skip = (page - 1) * limit;
-  const searchWhere = buildSearchWhere(query.search?.trim());
+  const searchWhere = buildSearchWhere(searchTerm(query.search));
 
   const where = {
     ...(searchWhere ?? {}),

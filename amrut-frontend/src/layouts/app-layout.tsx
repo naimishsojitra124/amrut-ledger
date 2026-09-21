@@ -19,14 +19,13 @@ export function AppLayout() {
     <div className="flex h-dvh w-full overflow-hidden bg-[#F8FAFC]">
       <Sidebar />
 
-      {/* Mounted here rather than at the app root so the login screen does
-          not carry a dozen modals — and the queries behind them. */}
+      {/* Mounted inside the layout, so the login screen carries none of their queries. */}
       <AppModals />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <DemoBanner />
 
-        {!healthQuery.isLoading && (
+        {!isOnline && (
           <div
             className={[
               "flex min-h-7 shrink-0 items-center justify-center px-3 text-center text-xs font-medium",

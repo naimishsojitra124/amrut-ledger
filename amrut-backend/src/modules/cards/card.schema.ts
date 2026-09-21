@@ -15,7 +15,7 @@ export const cardAssignmentParamSchema = z.object({
 export const cardListQuerySchema = z
   .object({
     status: z.enum(["assigned", "available"]).optional(),
-    search: z.string().trim().min(1).optional(),
+    search: z.string().trim().min(1).max(80).optional(),
     page: z.coerce.number().int().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(500).optional(),
   })

@@ -3,13 +3,7 @@ import { useCallback, useMemo } from "react";
 import { useAuthStore } from "@/store/auth.store";
 import type { Permission } from "@/config/permissions";
 
-/**
- * What the signed-in user is allowed to do.
- *
- * The list comes from the server with their profile, so it always reflects
- * `amrut-backend/src/app/auth/permissions.ts` — the UI holds no copy of the
- * access matrix and cannot fall out of step with the API.
- */
+// Reads the server's resolved list, so the UI can never drift from the access matrix.
 export function usePermissions() {
   const user = useAuthStore((state) => state.user);
 
@@ -38,12 +32,6 @@ export function usePermissions() {
   return { can, canAny, canAll, permissions: granted, role: user?.role ?? null };
 }
 
-/**
- * Renders its children only when the user holds the permission.
- *
- * Pass `fallback` where the space needs filling — an explanation, or a disabled
- * control — rather than leaving a gap the user cannot account for.
- */
 export function useCan(permission: Permission): boolean {
   const { can } = usePermissions();
   return can(permission);

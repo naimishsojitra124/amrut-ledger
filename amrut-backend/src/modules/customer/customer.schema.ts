@@ -1,10 +1,5 @@
 import { z } from "zod";
 
-/**
- * Mobile numbers are optional throughout. An empty string is normalised to
- * `undefined` so that a cleared field and an omitted field behave identically,
- * and only a genuinely present value is checked against the 10-digit rule.
- */
 const optionalMobileNumberSchema = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
   z
@@ -22,7 +17,7 @@ export const customerListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   status: z.enum(["active", "archived"]).optional(),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(80).optional(),
 });
 
 export const customerCardLookupQuerySchema = z.object({
@@ -38,11 +33,7 @@ const customerCardSchema = z.object({
   cardNumber: z.coerce.number().int().positive(),
 });
 
-/**
- * The balance a customer was already carrying when the shop moved onto this
- * system. `month`/`year` name the period it is attributed to — normally the
- * month before go-live, so the first real bill carries it forward.
- */
+// month/year name the period it belongs to, normally the month before go-live.
 export const openingBalanceSchema = z.object({
   amount: z.coerce
     .number()
@@ -160,7 +151,7 @@ export const customerBillsQuerySchema = z.object({
   month: z.coerce.number().int().min(1).max(12).optional(),
   year: z.coerce.number().int().min(2000).max(2100).optional(),
   status: z.enum(["paid", "partial", "unpaid", "carried_forward"]).optional(),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(80).optional(),
 });
 
 export const customerPaymentsQuerySchema = z.object({
@@ -170,5 +161,5 @@ export const customerPaymentsQuerySchema = z.object({
   billMonth: z.coerce.number().int().min(1).max(12).optional(),
   billYear: z.coerce.number().int().min(2000).max(2100).optional(),
   paymentMethod: z.enum(["cash", "upi"]).optional(),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(80).optional(),
 });

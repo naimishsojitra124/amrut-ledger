@@ -52,7 +52,6 @@ export interface DailyLedgerUserSummaryResponse {
 }
 
 export interface DailyLedgerEntryResponse {
-  /** Stable identifier. Use this to edit or delete, never `entryIndex`. */
   id: string;
   entryIndex: number;
   createdAt: string;
@@ -86,6 +85,9 @@ export interface DailyLedgerResponse {
   cardAssignment: DailyLedgerCardSummaryResponse;
   ledgerDate: string;
   entries: DailyLedgerEntryResponse[];
+  // True once someone has confirmed the customer bought nothing that day, which is a
+  // different statement from a day nobody has reached yet.
+  noPurchase: boolean;
   totalMilkLitres: number;
   totalMilkAmount: number;
   totalProductAmount: number;
@@ -151,4 +153,27 @@ export interface DailyLedgerEntryIndexParams {
   customerId: string;
   date: string;
   entryIndex: number;
+}
+
+export interface SetNoPurchaseRequest {
+  noPurchase: boolean;
+}
+
+export interface DailyLedgerNoPurchaseResponse {
+  customerId: string;
+  ledgerDate: string;
+  noPurchase: boolean;
+  // Null when clearing a day that had no ledger row to begin with.
+  ledger: DailyLedgerResponse | null;
+}
+
+export interface LastLedgerEntryResponse {
+  ledgerDate: string;
+  cardNumber: number | null;
+  customerId: string;
+  customerName: string;
+  recordedAt: string;
+  recordedBy: DailyLedgerUserSummaryResponse | null;
+  // The day was closed off as "bought nothing" rather than by adding an entry.
+  noPurchase: boolean;
 }

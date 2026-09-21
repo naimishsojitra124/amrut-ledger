@@ -57,7 +57,6 @@ export interface DailyLedgerUserSummaryResponse {
 }
 
 export interface DailyLedgerEntryResponse {
-  /** Stable identifier. Edits and deletions address this, never the index. */
   id: string;
   entryIndex: number;
   createdAt: string;
@@ -91,6 +90,9 @@ export interface DailyLedgerResponse {
   cardAssignment: DailyLedgerCardSummaryResponse;
   ledgerDate: string;
   entries: DailyLedgerEntryResponse[];
+  // Someone confirmed the customer bought nothing that day, as opposed to nobody
+  // having reached the day yet.
+  noPurchase: boolean;
   totalMilkLitres: number;
   totalMilkAmount: number;
   totalProductAmount: number;
@@ -118,6 +120,58 @@ function mapLedger(ledger: DailyLedgerResponse): DailyLedgerResponse {
 }
 
 const ROOT_KEY = ["daily-ledgers"] as const;
+
+export interface LastLedgerEntryResponse {
+  ledgerDate: string;
+  cardNumber: number | null;
+  customerId: string;
+  customerName: string;
+  recordedAt: string;
+  recordedBy: { id: string; fullName: string; status: string } | null;
+  noPurchase: boolean;
+}
+
+export interface DailyLedgerNoPurchaseResponse {
+  customerId: string;
+  ledgerDate: string;
+  noPurchase: boolean;
+  ledger: DailyLedgerResponse | null;
+}
+
+export const LAST_LEDGER_ENTRY_KEY = [...ROOT_KEY, "last-entry"] as const;
+
+// Exported so the realtime cache layer writes to exactly the keys the hooks read.
+export function dailyLedgerQueryKey(customerId: string, date: string) {
+  return [...ROOT_KEY, customerId, date] as const;
+}
+
+export { mapLedger };
+
+// Where data entry got to, across every customer, so the next person knows
+// which card and date to carry on from.
+export function useLastLedgerEntryQuery(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: LAST_LEDGER_ENTRY_KEY,
+
+    queryFn: async ({ signal }) => {
+      const response = await apiConnector<LastLedgerEntryResponse | null>(
+        "GET",
+        "/ledgers/last-entry",
+        undefined,
+        undefined,
+        undefined,
+        signal,
+      );
+
+      return response.data ?? null;
+    },
+
+    enabled: options.enabled ?? true,
+    staleTime: QUERY_STALE_TIMES.dailyLedger,
+    gcTime: QUERY_GC_TIMES.standard,
+    ...FINANCIAL_QUERY_BEHAVIOR,
+  });
+}
 
 export function useCustomerDailyLedgerQuery(
   customerId: string | null | undefined,
@@ -261,6 +315,40 @@ export function useDeleteDailyLedgerEntryMutation() {
       ] as const;
 
       queryClient.setQueryData(queryKey, ledger);
+
+      await invalidateCustomerLedgerChanged(queryClient, variables.customerId);
+    },
+  });
+}
+
+// Records that the customer was reached on this day and bought nothing, so the round
+// can be continued without leaving a gap that looks like unentered work.
+export function useSetNoPurchaseMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (variables: {
+      customerId: string;
+      date: string;
+      noPurchase: boolean;
+    }) => {
+      const response = await apiConnector<DailyLedgerNoPurchaseResponse>(
+        "PATCH",
+        `/customers/${variables.customerId}/ledgers/${variables.date}/no-purchase`,
+        { noPurchase: variables.noPurchase },
+      );
+
+      return response.data;
+    },
+
+    onSuccess: async (result, variables) => {
+      const queryKey = dailyLedgerQueryKey(variables.customerId, variables.date);
+
+      if (result.ledger) {
+        queryClient.setQueryData(queryKey, mapLedger(result.ledger));
+      } else {
+        queryClient.removeQueries({ queryKey });
+      }
 
       await invalidateCustomerLedgerChanged(queryClient, variables.customerId);
     },

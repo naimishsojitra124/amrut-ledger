@@ -20,47 +20,27 @@ const config = z
     PORT: z.coerce.number().int().positive().default(5000),
     HOST: z.string().default("0.0.0.0"),
 
-    /**
-     * Diagnostics are opt-in and deliberately NOT derived from NODE_ENV.
-     *
-     * A deployed service that is missing NODE_ENV=production used to silently
-     * turn on full Prisma query logging and the pino-pretty transport, both of
-     * which are expensive and were adding real latency to every request.
-     */
+    // Swagger at /docs is unauthenticated, so it stays off in production unless asked for.
+    ENABLE_API_DOCS: z.enum(["true", "false"]).optional(),
+
+    PUBLIC_API_URL: z.string().optional(),
+
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).optional(),
     LOG_PRETTY: z.enum(["true", "false"]).optional(),
+    // Opt-in, not derived from NODE_ENV: a deployment missing it used to log every query it ran.
     PRISMA_LOG_QUERIES: z.enum(["true", "false"]).default("false"),
 
-    /**
-     * Interactive transactions run several round trips. On a deployment whose
-     * database is in another region each of those costs real time, so the
-     * ceiling is configurable rather than stuck at Prisma's 5s default.
-     */
+    // Tunable because the right ceiling depends on how far the database is from the app.
     DB_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(20_000),
     DB_TRANSACTION_MAX_WAIT_MS: z.coerce.number().int().min(2_000).max(60_000).default(10_000),
 
-    /**
-     * Opens a passwordless, read-only "explore as guest" door for a public
-     * demo. Off unless explicitly enabled, so the real deployment never has it.
-     *
-     * ⚠️ A demo deployment MUST point at its own database. Guests can read
-     * every customer's name, phone number, address and outstanding balance —
-     * pointing this at the live database publishes all of it.
-     */
+    // Must point at its own database: the reset job deletes every collection it can reach.
     DEMO_MODE: z.enum(["true", "false"]).default("false"),
 
-    /**
-     * The password printed on the demo login screen. Public by design, so it
-     * must never be a password used anywhere real.
-     */
+    // Printed on the login screen, so never reuse a real password here.
     DEMO_GUEST_PASSWORD: z.string().min(10).default("GuestDemo2026"),
 
-    /**
-     * How long the demo runs before it is wiped and re-seeded.
-     *
-     * Visitors have full access, so the data drifts. Rebuilding on a schedule
-     * is what lets them try anything without spoiling it for the next person.
-     */
+    // Visitors can change anything, so the data is rebuilt rather than protected.
     DEMO_RESET_INTERVAL_HOURS: z.coerce.number().min(1).max(720).default(6),
   })
   .superRefine((value, context) => {
@@ -80,6 +60,10 @@ export const env = {
   jwtAccessExpiresIn: parsed.JWT_ACCESS_EXPIRES_IN as JwtExpiresIn,
   jwtRefreshExpiresIn: parsed.JWT_REFRESH_EXPIRES_IN as JwtExpiresIn,
   bcryptSaltRounds: parsed.BCRYPT_SALT_ROUNDS,
+  enableApiDocs: parsed.ENABLE_API_DOCS
+    ? parsed.ENABLE_API_DOCS === "true"
+    : parsed.NODE_ENV !== "production",
+  publicApiUrl: parsed.PUBLIC_API_URL,
   cookieSecure: parsed.COOKIE_SECURE === "true",
   cookieSameSite: parsed.COOKIE_SAME_SITE,
   corsOrigins: parsed.CORS_ORIGIN?.split(",").map((origin) => origin.trim()) ?? [
@@ -90,8 +74,6 @@ export const env = {
   host: parsed.HOST,
 
   logLevel: parsed.LOG_LEVEL ?? (parsed.NODE_ENV === "production" ? "info" : "debug"),
-  // Pretty printing spawns a transport worker and formats every line. Useful at
-  // a terminal, wasteful on a server.
   logPretty: parsed.LOG_PRETTY === "true" || (parsed.LOG_PRETTY === undefined && parsed.NODE_ENV === "development"),
   prismaLogQueries: parsed.PRISMA_LOG_QUERIES === "true",
 

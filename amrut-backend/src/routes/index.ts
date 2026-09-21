@@ -2,7 +2,10 @@ import { authRoutes } from "@/modules/auth/auth.route";
 import { billRoutes } from "@/modules/bills/bill.route";
 import { cardRoutes } from "@/modules/cards/card.route";
 import { customerRoutes } from "@/modules/customer/customer.route";
-import { dailyLedgerRoutes } from "@/modules/daily-ledger/daily-ledger.route";
+import {
+  dailyLedgerRoutes,
+  ledgerProgressRoutes,
+} from "@/modules/daily-ledger/daily-ledger.route";
 import { milkTypeRoutes } from "@/modules/milk-types/milk-type.route";
 import { productSuggestionRoutes } from "@/modules/product-suggestions/product-suggestion.route";
 import { userRoutes } from "@/modules/users/user.route";
@@ -24,6 +27,7 @@ export async function registerRoutes(app: FastifyInstance) {
   app.register(cardRoutes, { prefix: "/cards" });
 
   app.register(dailyLedgerRoutes, { prefix: "/customers" });
+  app.register(ledgerProgressRoutes, { prefix: "/ledgers" });
 
   app.register(customerRoutes, { prefix: "/customers" });
 
@@ -33,15 +37,7 @@ export async function registerRoutes(app: FastifyInstance) {
 
   app.get("/health", async () => ({ status: "ok" }));
 
-  /**
-   * Reports how long a trivial round trip to the database takes.
-   *
-   * Nearly all perceived slowness in this app is per-query network latency
-   * rather than query cost: a page that runs six statements pays this number
-   * six times. If `databaseRoundTripMs` is above ~50ms the application and the
-   * database are probably in different regions, and no amount of query tuning
-   * will fix that — move them together.
-   */
+  // Above ~50ms the app and database are in different regions, which no query tuning will fix.
   app.get("/health/db", async (request) => {
     const prisma = (request.server as typeof app & { prisma: PrismaClient }).prisma;
 

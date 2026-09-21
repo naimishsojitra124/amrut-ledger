@@ -4,16 +4,8 @@ import { toast } from "sonner";
 
 import { getApiErrorMessage } from "@/services/utils/apiConnector";
 
-/**
- * Opt-out hook for queries and mutations that present their own errors.
- *
- * Declare it as `meta: { suppressErrorToast: true }` on the query/mutation —
- * for example a card lookup where "no customer on this card" is an ordinary
- * outcome rendered inline rather than a failure worth interrupting over.
- */
 export interface QueryMeta extends Record<string, unknown> {
   suppressErrorToast?: boolean;
-  /** Prefix for the toast, e.g. "Could not save customer". */
   errorTitle?: string;
 }
 
@@ -24,22 +16,11 @@ declare module "@tanstack/react-query" {
   }
 }
 
-/**
- * The same failure often arrives several times at once — a page mounting six
- * queries against a server that is down, or an expired session rejecting
- * everything in flight. Showing one toast per rejection buries the screen, so
- * identical messages collapse within a short window.
- */
+// One dead server rejects every query on the page; identical messages collapse into one toast.
 const TOAST_DEDUPE_WINDOW_MS = 3_000;
 const recentToasts = new Map<string, number>();
 
-/**
- * A cancelled request is not a failure — the component unmounted, or the user
- * typed another character into a search box.
- *
- * Some service wrappers re-throw a plain `Error` carrying only the message, so
- * the axios-native checks are not always enough.
- */
+// An unmounted component or a changed search box is not a failure worth reporting.
 function isCancellation(error: unknown): boolean {
   if (axios.isCancel(error)) return true;
   if (axios.isAxiosError(error) && error.code === "ERR_CANCELED") return true;
@@ -82,7 +63,6 @@ function shouldRetry(failureCount: number, error: unknown): boolean {
   if (axios.isAxiosError(error)) {
     const status = error.response?.status;
 
-    // No response at all (offline, server restarting) is worth one retry.
     if (status === undefined) return true;
     if (status === 408 || status === 429) return true;
 
@@ -93,20 +73,14 @@ function shouldRetry(failureCount: number, error: unknown): boolean {
 }
 
 export const queryClient = new QueryClient({
-  /**
-   * Every failed write surfaces to the user. Previously most mutations had no
-   * `onError` at all, so a rejected save simply did nothing visible.
-   */
+  // Every failed write surfaces here, so a rejected save can never just do nothing.
   mutationCache: new MutationCache({
     onError: (error, _variables, _context, mutation) => {
       notifyError(error, mutation.options.meta as QueryMeta | undefined);
     },
   }),
 
-  /**
-   * Read failures are announced too, but only once the query has genuinely
-   * given up — React Query calls this after retries are exhausted.
-   */
+  // Reads report only once React Query has exhausted its retries.
   queryCache: new QueryCache({
     onError: (error, query) => {
       notifyError(error, query.meta as QueryMeta | undefined);
@@ -118,20 +92,10 @@ export const queryClient = new QueryClient({
       retry: shouldRetry,
       staleTime: 1000 * 60,
       gcTime: 1000 * 60 * 5,
-      /**
-       * Refetch when a device is brought back to the front.
-       *
-       * This is the moment staleness actually matters in a shop: someone picks
-       * their tablet back up and needs to see what the other counter recorded
-       * while it was face-down. `staleTime` still applies, so a tab flicked
-       * away and back does not re-request anything.
-       */
+      // Picking a tablet back up should show what the other counter recorded meanwhile.
       refetchOnWindowFocus: true,
       refetchOnReconnect: true,
       refetchOnMount: false,
-      // Deliberately no global `placeholderData`: list queries opt into
-      // `keepPreviousData` individually. Applying it everywhere would show one
-      // customer's details while another customer's request is in flight.
     },
     mutations: {
       retry: 0,

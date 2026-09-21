@@ -14,6 +14,7 @@ import type {
   CreateCardRequest,
   UpdateCardRequest,
 } from "./card.types";
+import { searchTerm } from "@/app/db/search";
 
 function createHttpError(statusCode: number, message: string) {
   const error = new Error(message) as Error & { statusCode: number };
@@ -57,22 +58,9 @@ function normalizeCard(card: any): CardResponse {
   };
 }
 
-/**
- * Hard ceiling so a card list can never become an unbounded response.
- *
- * The settings screen filters and pages this set in the browser, so the cap is
- * set well above any realistic card count rather than at a display page size.
- */
+// The settings screen pages this set in the browser, so the cap only bounds the response.
 const CARD_PAGE_LIMIT = 500;
 
-/**
- * Searching happens in the database.
- *
- * Card numbers are integers so they only match exactly; the text fields live
- * on the active assignment's customer, which Prisma can filter through the
- * relation. The previous version fetched every card with its assignment,
- * customer and assigning user, then filtered in JavaScript.
- */
 function buildCardWhere(query: CardListQuery): Prisma.CardWhereInput {
   const where: Prisma.CardWhereInput = {};
 
@@ -80,7 +68,7 @@ function buildCardWhere(query: CardListQuery): Prisma.CardWhereInput {
     where.status = query.status;
   }
 
-  const search = query.search?.trim();
+  const search = searchTerm(query.search);
 
   if (search) {
     const matches: Prisma.CardWhereInput[] = [
@@ -130,12 +118,7 @@ const CARD_LIST_INCLUDE = {
   },
 } satisfies Prisma.CardInclude;
 
-/**
- * Counted in the database against the *unfiltered* card set so the header
- * totals stay stable while the user filters or searches. Deriving them from
- * the visible rows made "Available: 0" appear whenever the assigned filter
- * was active.
- */
+// Counted unfiltered, so the header totals do not change as the user filters.
 async function loadCardSummary(prisma: PrismaClient): Promise<CardSummaryResponse> {
   const [totalCards, assignedCards, availableCards] = await Promise.all([
     prisma.card.count(),
@@ -228,7 +211,6 @@ export async function getCardById(app: FastifyInstance, id: string): Promise<Car
 
   return normalizeCard(card);
 }
-
 
 export async function getCardNumbering(app: FastifyInstance): Promise<CardNumberingResponse> {
   const prisma = getPrisma(app);

@@ -32,6 +32,7 @@ import type {
   PaymentResponse,
   PaymentSummaryResponse,
 } from "./bill.types";
+import { searchTerm } from "@/app/db/search";
 
 type BillRecord = Prisma.BillGetPayload<{
   include: {
@@ -227,13 +228,7 @@ function buildPageInfo(totalItems: number, page: number, limit: number) {
   return { pageInfo, skip: (safePage - 1) * limit };
 }
 
-/**
- * Filtering, sorting and pagination all happen in the database.
- *
- * These lists back the bills and payments screens, which grow without bound.
- * Loading every row into memory just to slice a page out of it was the single
- * largest source of request latency in the app.
- */
+// Filtering and paging happen in the database; these lists grow without bound.
 function buildBillWhere(query: BillListQuery): Prisma.BillWhereInput {
   const where: Prisma.BillWhereInput = {};
 
@@ -242,7 +237,7 @@ function buildBillWhere(query: BillListQuery): Prisma.BillWhereInput {
   if (query.year !== undefined) where.year = query.year;
   if (query.status !== undefined) where.status = query.status;
 
-  const search = query.search?.trim();
+  const search = searchTerm(query.search);
 
   if (search) {
     const matches: Prisma.BillWhereInput[] = [
@@ -272,7 +267,7 @@ function buildPaymentWhere(query: PaymentListQuery): Prisma.PaymentWhereInput {
   if (query.billYear !== undefined) where.billYear = query.billYear;
   if (query.paymentMethod !== undefined) where.paymentMethod = query.paymentMethod;
 
-  const search = query.search?.trim();
+  const search = searchTerm(query.search);
 
   if (search) {
     where.OR = [
@@ -323,16 +318,12 @@ async function loadBillPaymentSummary(
   };
 }
 
-/**
- * Every monetary value in this system is a whole number of rupees. Amounts
- * derived from litres (2.5 L at Rs. 54/L) become money here, and rounding at
- * that boundary is what keeps bills, payments and balances reconciling exactly.
- */
+// Money is whole rupees, and this is the one boundary where litres become money.
 function toRupees(value: number) {
   return Math.round(value);
 }
 
-/** Reversed receipts must never count towards money received. */
+// A reversed payment is not money received, so it never counts towards a bill.
 const ACTIVE_PAYMENT = { reversedAt: null } satisfies Prisma.PaymentWhereInput;
 
 export function getDepositCredit(
@@ -356,13 +347,7 @@ function getBillNumber(month: number, year: number, cardNumber: number) {
   return `BILL-${String(month).padStart(2, "0")}-${year}-${cardNumber}`;
 }
 
-/**
- * The bills whose balance rolls into the bill being generated for
- * `month`/`year` — that is, every still-open bill from an earlier period.
- *
- * Exported so the carry-forward invariant can be tested directly: the balance
- * must move off these bills onto the new one, never be duplicated across both.
- */
+// Exported so the carry-forward invariant can be tested without a database.
 export function selectBillsToCarryForward<
   T extends { month: number; year: number; outstandingAmount: number },
 >(openBills: T[], month: number, year: number): T[] {
@@ -695,13 +680,6 @@ export async function generateBill(
     },
   });
 
-  /**
-   * We need the card assignment that was valid
-   * during this billing period.
-   *
-   * Prefer the latest assignment that started
-   * before the end of the billing month.
-   */
   const cardAssignment = await prisma.cardAssignment.findFirst({
     where: {
       customerId,
@@ -945,6 +923,7 @@ export async function generateBill(
   return getBillById(app, createdBill.id);
 }
 
+// Receipt numbers come from a counter because the column is unique.
 async function getReceiptNumber(tx: PrismaClient, year: number) {
   const counter = await tx.counter.upsert({
     where: { id: `receipt-${year}` },

@@ -19,9 +19,7 @@ enum UserRole {
   manager
   employee
 
-  /// Read-only account for the public demo. Never assignable through the UI —
-  /// it exists only so the permission matrix can describe it, and the guest
-  /// login endpoint only works when DEMO_MODE is on.
+  /// Shared account for the public demo; never assignable through the UI.
   guest
 }
 
@@ -54,6 +52,7 @@ enum BillStatus {
   paid
   partial
   unpaid
+  /// Balance has moved onto a later bill and is no longer owed on this one.
   carried_forward
 }
 
@@ -128,12 +127,7 @@ type LedgerProductEntry {
 }
 
 type DailyLedgerEntry {
-  /// Stable identifier for this entry.
-  ///
-  /// Entries used to be addressed by their position in the array, which meant
-  /// that if one device removed an entry while another had the page open, the
-  /// second device's "delete entry 2" landed on a different row than the one
-  /// its user had selected. Addressing by id makes that impossible.
+  /// Stable id: entries used to be addressed by array position, which broke when two devices edited the same day.
   id              String               @default("")
   createdAt       DateTime             @default(now())
   createdById     String               @db.ObjectId
@@ -226,6 +220,7 @@ model User {
   @@map("users")
 }
 
+/// Deleting a user with a live session fails on this relation, which matters to the demo reset.
 model AuthSession {
   id               String    @id @default(auto()) @map("_id") @db.ObjectId
   sessionId        String    @unique
@@ -367,6 +362,9 @@ model DailyLedger {
   cardAssignmentId String             @db.ObjectId
   ledgerDate       DateTime
   entries          DailyLedgerEntry[]
+  // Optional on purpose: a document written before this field existed reads as null,
+  // which means "nothing recorded yet" rather than "confirmed no purchase".
+  noPurchase       Boolean?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   updatedById      String             @db.ObjectId
@@ -401,17 +399,11 @@ model Bill {
   outstandingAmount Int                  @default(0)
   status            BillStatus           @default(unpaid)
 
-  // When a bill is still unpaid at the time the next bill is generated, its
-  // balance is rolled into that bill's `previousDue`. The amount moves out of
-  // `outstandingAmount` so that summing outstanding across bills never counts
-  // the same debt twice.
+  /// Moved off outstandingAmount when rolled into a later bill, so no debt is counted twice.
   carriedForwardAmount   Int     @default(0)
   carriedForwardToBillId String? @db.ObjectId
 
-  /// True for the balance a customer was already carrying when the shop moved
-  /// onto this system. It is a real receivable — payable, carried forward and
-  /// counted like any other bill — but it has no milk or item lines behind it,
-  /// because that history was never recorded here.
+  /// A balance carried over from paper records: a real receivable with no milk or item lines.
   isOpeningBalance Boolean  @default(false)
   notes            String?
   billVersion      Int      @default(1)

@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Info } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Info,
+  Loader2,
+  ReceiptText,
+} from "lucide-react";
+import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/common/query-error-state";
 import { DataTableSkeleton } from "@/components/common/data-table-skeleton";
@@ -14,6 +21,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useCustomerDailyHistoryQuery } from "@/services/customer.service";
+import { useGenerateBillMutation } from "@/services/bill.service";
+import { usePermissions } from "@/hooks/use-permissions";
+import { PERMISSIONS } from "@/config/permissions";
 import type { CustomerDailyHistoryItemResponse } from "@/types/customer";
 import { formatCurrency } from "@/utils/format-currency";
 
@@ -21,6 +31,9 @@ type Props = {
   customerId: string;
   outstandingAmount?: number | null;
   initialDate?: string | null;
+  // Offered where walking to the customer's Bills tab would be the long way
+  // round, such as the ledger popup in Quick Entry.
+  showGenerateBill?: boolean;
 };
 
 type MilkSummaryItem = {
@@ -46,11 +59,32 @@ const MONTH_FORMATTER = new Intl.DateTimeFormat("en-IN", {
 const DATE_FORMATTER = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
   month: "short",
+  timeZone: "UTC",
 });
 
 const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("en-IN", {
   weekday: "short",
+  timeZone: "UTC",
 });
+
+const BUSINESS_TIME_ZONE = "Asia/Kolkata";
+
+// A ledger date as the app stores it: the yyyy-mm-dd business day.
+function toDateKey(value: string) {
+  return value.slice(0, 10);
+}
+
+function businessToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+  }).format(new Date());
+}
+
+type DayRow = {
+  dateKey: string;
+  date: Date;
+  item: CustomerDailyHistoryItemResponse | null;
+};
 
 const CURRENT_DATE = new Date();
 const INITIAL_MONTH = CURRENT_DATE.getMonth() + 1;
@@ -143,6 +177,7 @@ export default function CustomerDailyHistoryTab({
   customerId,
   outstandingAmount,
   initialDate,
+  showGenerateBill = false,
 }: Props) {
   const getInitialMonth = () => {
     if (!initialDate) {
@@ -191,12 +226,6 @@ export default function CustomerDailyHistoryTab({
     [selectedMonth, selectedYear],
   );
 
-  /**
-   * The API already returns these in date order, so this only guards against a
-   * caller getting them from somewhere else. Re-sorting descending here used to
-   * override the order the endpoint chose, which made changing it on the server
-   * look like it had no effect.
-   */
   const monthItems = useMemo(() => {
     if (!data?.items?.length) {
       return [];
@@ -207,6 +236,38 @@ export default function CustomerDailyHistoryTab({
         new Date(a.ledgerDate).getTime() - new Date(b.ledgerDate).getTime(),
     );
   }, [data?.items]);
+
+  // Read once at mount: a clock read inside the memo below would make it
+  // impure, and the day cannot change while the table is open.
+  const [todayKey] = useState(businessToday);
+
+  const dayRows = useMemo<DayRow[]>(() => {
+    if (!monthItems.length) {
+      return [];
+    }
+
+    const byDate = new Map(
+      monthItems.map((item) => [toDateKey(item.ledgerDate), item]),
+    );
+
+    const daysInMonth = new Date(
+      Date.UTC(selectedYear, selectedMonth, 0),
+    ).getUTCDate();
+
+    const rows: DayRow[] = [];
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = new Date(Date.UTC(selectedYear, selectedMonth - 1, day));
+      const dateKey = date.toISOString().slice(0, 10);
+
+      // Days that have not happened yet are not missing entries.
+      if (dateKey > todayKey) break;
+
+      rows.push({ dateKey, date, item: byDate.get(dateKey) ?? null });
+    }
+
+    return rows;
+  }, [monthItems, selectedMonth, selectedYear, todayKey]);
 
   const monthSummary = useMemo(() => {
     const milkSummary = buildMilkSummary(monthItems);
@@ -230,6 +291,29 @@ export default function CustomerDailyHistoryTab({
   }, [monthItems]);
 
   const outstanding = outstandingAmount ?? 0;
+
+  const { can } = usePermissions();
+  const generateBill = useGenerateBillMutation();
+  const [confirmingGenerate, setConfirmingGenerate] = useState(false);
+
+  const canGenerateBill = showGenerateBill && can(PERMISSIONS.BILL_GENERATE);
+
+  function handleGenerateBill() {
+    generateBill.mutate(
+      { customerId, month: selectedMonth, year: selectedYear },
+      {
+        onSuccess: (bill) => {
+          setConfirmingGenerate(false);
+          toast.success(
+            `Bill ${bill.billNumber} generated for ${selectedMonthLabel}.`,
+          );
+        },
+        // The message from the API is already shown by the global handler; a
+        // bill that exists for this month is the usual reason.
+        onError: () => setConfirmingGenerate(false),
+      },
+    );
+  }
 
   function shiftMonth(delta: number) {
     const nextDate = new Date(selectedYear, selectedMonth - 1 + delta, 1);
@@ -267,9 +351,54 @@ export default function CustomerDailyHistoryTab({
           </Button>
         </div>
 
-        {isFetching && !isPending ? (
-          <span className="text-xs text-neutral-500">Updating…</span>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {isFetching && !isPending ? (
+            <span className="text-xs text-neutral-500">Updating…</span>
+          ) : null}
+
+          {canGenerateBill ? (
+            confirmingGenerate ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-neutral-600">
+                  Generate the {selectedMonthLabel} bill?
+                </span>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleGenerateBill}
+                  disabled={generateBill.isPending}
+                >
+                  {generateBill.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Confirm"
+                  )}
+                </Button>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setConfirmingGenerate(false)}
+                  disabled={generateBill.isPending}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmingGenerate(true)}
+              >
+                <ReceiptText className="mr-2 h-4 w-4" />
+                Generate Bill
+              </Button>
+            )
+          ) : null}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border">
@@ -302,8 +431,64 @@ export default function CustomerDailyHistoryTab({
                   />
                 </TableCell>
               </TableRow>
-            ) : monthItems.length ? (
-              monthItems.map((item) => {
+            ) : dayRows.length ? (
+              dayRows.map(({ dateKey, date, item }) => {
+                // Someone checked this day and the customer bought nothing, which is
+                // a different statement from a day nobody has reached yet.
+                const isNoPurchase =
+                  item?.noPurchase === true && item.entries.length === 0;
+
+                // A day with nothing recorded still gets a row, so the table
+                // reads as the whole month and a gap is visibly a gap.
+                if (!item || item.entries.length === 0) {
+                  return (
+                    <TableRow
+                      key={item?.id ?? dateKey}
+                      className={isNoPurchase ? undefined : "bg-neutral-50/60"}
+                    >
+                      <TableCell className="border-r align-top">
+                        <div
+                          className={`text-sm font-medium ${
+                            isNoPurchase
+                              ? "text-neutral-700"
+                              : "text-neutral-500"
+                          }`}
+                        >
+                          {DATE_FORMATTER.format(date)}
+                        </div>
+
+                        <div className="text-xs text-neutral-400">
+                          {WEEKDAY_FORMATTER.format(date)}
+                        </div>
+                      </TableCell>
+
+                      <TableCell className="border-r text-center">
+                        {isNoPurchase ? (
+                          <span className="text-xs font-medium text-emerald-700">
+                            No purchase
+                          </span>
+                        ) : (
+                          <span className="text-neutral-400">—</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="border-r text-center text-neutral-400">
+                        —
+                      </TableCell>
+
+                      <TableCell className="text-center">
+                        {isNoPurchase ? (
+                          <span className="text-sm text-neutral-600">
+                            {formatCurrency(0)}
+                          </span>
+                        ) : (
+                          <span className="text-neutral-400">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                }
+
                 const milkEntries = item.entries.flatMap(
                   (entry) => entry.milkEntries ?? [],
                 );
@@ -313,8 +498,6 @@ export default function CustomerDailyHistoryTab({
                 );
 
                 const dailyTotal = getDailyTotal(item);
-
-                const date = new Date(item.ledgerDate);
 
                 return (
                   <TableRow key={item.id}>

@@ -20,15 +20,7 @@ function getActor(request: FastifyRequest): { sub: string; role: UserRole } | nu
   return { sub: user.sub, role: user.role };
 }
 
-/**
- * Protects the shared demo account from the visitors using it.
- *
- * Guests have full access so a reviewer can exercise the whole app, including
- * staff management. That leaves one way to spoil it for everyone: changing the
- * account they all sign in with. Renaming it, archiving it, demoting it or
- * resetting its password would lock the next visitor out until the scheduled
- * rebuild. Every other account in the demo is fair game.
- */
+// Renaming, archiving or demoting the shared demo login would lock out the next visitor.
 export function assertNotDemoAccount(target: { role: UserRole; mobileNumber?: string | null }) {
   if (target.role !== "guest") return;
 
@@ -39,12 +31,7 @@ export function assertNotDemoAccount(target: { role: UserRole; mobileNumber?: st
   throw error;
 }
 
-/**
- * Requires the caller to hold `permission`.
- *
- * Verifies the token itself, so it is safe to use on routes that do not also
- * run `authenticate` — and harmless on ones that do.
- */
+// Verifies the token itself, so it works on routes that do not also run `authenticate`.
 export function requirePermission(permission: Permission) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -72,7 +59,7 @@ export function requirePermission(permission: Permission) {
   };
 }
 
-/** Passes when the caller holds any one of the listed permissions. */
+// Passes when the caller holds any one of the listed permissions
 export function requireAnyPermission(...permissions: Permission[]) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -105,14 +92,7 @@ export function getRequestActor(request: FastifyRequest) {
   return actor;
 }
 
-/**
- * Seniority check for staff-account routes.
- *
- * Holding a user permission is not enough on its own: a manager may reset an
- * employee's password but must never reach an owner's or another manager's.
- * Acting on your own account is always allowed, so nobody can be locked out of
- * their own profile.
- */
+// Holding the permission is not enough; seniority decides whose account you may touch.
 export function assertCanActOnUser(
   actor: { sub: string; role: UserRole },
   target: { id: string; role: UserRole },

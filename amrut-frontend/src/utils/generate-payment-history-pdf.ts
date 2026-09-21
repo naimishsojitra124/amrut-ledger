@@ -130,9 +130,6 @@ export function generatePaymentHistoryPdf({
   const contactParts = [
     business.phone,
     business.email,
-    // business.gstNumber
-    //   ? `GSTIN: ${business.gstNumber}`
-    //   : undefined,
   ].filter(Boolean);
 
   if (contactParts.length > 0) {

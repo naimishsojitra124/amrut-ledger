@@ -40,13 +40,7 @@ function prismaOf(app: FastifyInstance) {
   };
 }
 
-/**
- * The signed-in user, with the permissions their role grants.
- *
- * Sending the resolved list means the UI never keeps its own copy of the access
- * matrix: `app/auth/permissions.ts` stays the only place access is decided, and
- * the two sides cannot drift apart.
- */
+// Sends the resolved permissions, so the UI never holds its own copy of the access matrix.
 function normalizeUser(
   user: Pick<User, "id" | "fullName" | "mobileNumber" | "email" | "role" | "status">,
 ): AuthUser {
@@ -238,7 +232,7 @@ export async function login(
   };
 }
 
-/** Shown on the demo login screen so a reviewer can sign straight in. */
+// Public by design: the login screen prints these.
 export function getDemoCredentials() {
   return {
     mobileNumber: DEMO_ACCOUNT.mobileNumber,
@@ -327,18 +321,7 @@ export async function refreshSession(
   };
 }
 
-/**
- * Logging out always succeeds.
- *
- * Previously a missing or expired refresh cookie made this throw 401, which
- * meant the client cleared its own state while the server-side session stayed
- * alive for the full 30-day refresh window. Logout is a request to end a
- * session; if we cannot identify one there is nothing to end, and that is a
- * success, not an error.
- *
- * When the cookie is unreadable we fall back to the access token so an expired
- * refresh token still revokes the right session.
- */
+// Always succeeds: if no session can be identified there is nothing to end.
 export async function logoutSession(
   app: FastifyInstance,
   input: { userId?: string | undefined; refreshToken?: string | undefined },
@@ -351,7 +334,6 @@ export async function logoutSession(
     try {
       sessionId = verifyRefreshToken(input.refreshToken).sid ?? null;
     } catch {
-      // Expired or tampered cookie. Fall through to the access token below.
     }
 
     if (!sessionId) {

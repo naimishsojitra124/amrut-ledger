@@ -10,9 +10,11 @@ import type {
   DailyLedgerListItemResponse,
   DailyLedgerListQuery,
   DailyLedgerListResponse,
+  DailyLedgerNoPurchaseResponse,
   DailyLedgerResponse,
   DailyLedgerSummaryResponse,
   DailyLedgerUserSummaryResponse,
+  LastLedgerEntryResponse,
   UpdateDailyLedgerEntryRequest,
 } from "./daily-ledger.types";
 
@@ -26,6 +28,7 @@ function getPrisma(app: FastifyInstance) {
   return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
 }
 
+// A business date is the Asia/Kolkata calendar day, stored as UTC midnight.
 function toBusinessDateString(date: Date) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata",
@@ -75,6 +78,7 @@ const LEDGER_SELECT = {
   cardAssignmentId: true,
   ledgerDate: true,
   entries: true,
+  noPurchase: true,
   createdAt: true,
   updatedAt: true,
   customer: {
@@ -142,10 +146,7 @@ function fallbackUserSummary(id: string): DailyLedgerUserSummaryResponse {
   };
 }
 
-/**
- * Amounts are whole rupees. Litres stay fractional (2.5 L is normal), so the
- * rounding happens exactly once, where litres turn into money.
- */
+// Litres stay fractional; rounding happens once, where litres turn into money.
 function calculateEntryTotals(entry: {
   milkEntries: Array<{ amount: number }>;
   productEntries: Array<{ amount: number }>;
@@ -161,16 +162,6 @@ function calculateEntryTotals(entry: {
   };
 }
 
-/**
- * Entry normalization is now synchronous.
- *
- * Previously this function queried the database for the creator of
- * every entry. That created an N+1 query problem.
- *
- * createdBy is now resolved in the single ledger query through
- * updatedBy only where applicable, while entry creator data is
- * loaded separately only when it is actually required.
- */
 function normalizeEntry(
   entry: any,
   entryIndex: number,
@@ -251,6 +242,7 @@ function normalizeLedger(
     cardAssignment: normalizeCardAssignment(ledger.cardAssignment),
     ledgerDate: toBusinessDateString(ledger.ledgerDate),
     entries,
+    noPurchase: ledger.noPurchase ?? false,
     totalMilkLitres: totals.totalMilkLitres,
     totalMilkAmount: totals.totalMilkAmount,
     totalProductAmount: totals.totalProductAmount,
@@ -336,19 +328,7 @@ async function getActiveAssignmentOrThrow(
   return assignment;
 }
 
-/**
- * The card assignment a ledger entry should be attributed to.
- *
- * Normally this is whichever card the customer held on that day. But entries
- * are routinely recorded for days that predate the assignment itself: a shop
- * moving onto this system creates its customers today and then back-fills the
- * month, and a missed day is often written up later. Refusing those was wrong —
- * the day happened, the customer owes for it, and which card they were holding
- * is only a grouping detail.
- *
- * So when no assignment covers the date we fall back to the earliest one the
- * customer has, which is the card they were on when the records begin.
- */
+// Falls back to the earliest card, because entries are routinely back-dated before the assignment.
 export async function getAssignmentForLedgerDateOrThrow(
   prisma: PrismaClient,
   customerId: string,
@@ -357,8 +337,6 @@ export async function getAssignmentForLedgerDateOrThrow(
   const ledgerDate = dateStringToBusinessDate(dateString);
   const dayAfter = new Date(ledgerDate.getTime() + 24 * 60 * 60 * 1000);
 
-  // The assignment actually in effect on that day: issued by the end of it,
-  // and not handed back before it started.
   const inEffect = await prisma.cardAssignment.findFirst({
     where: {
       customerId,
@@ -371,7 +349,6 @@ export async function getAssignmentForLedgerDateOrThrow(
 
   if (inEffect) return inEffect;
 
-  // Back-dated to before this customer had a card here.
   const earliest = await prisma.cardAssignment.findFirst({
     where: { customerId },
     select: CARD_ASSIGNMENT_SELECT,
@@ -380,7 +357,6 @@ export async function getAssignmentForLedgerDateOrThrow(
 
   if (earliest) return earliest;
 
-  // No card has ever been issued, so there is nothing to attribute this to.
   throw createHttpError(
     409,
     "Assign a card to this customer before recording ledger entries",
@@ -546,11 +522,7 @@ async function resolveProductEntries(
   }));
 }
 
-/**
- * Entries are logged as a readable sentence rather than as `JSON.stringify` of
- * the stored document, which previously exposed ObjectIds and internal field
- * names to whoever opened the customer's history tab.
- */
+// Logged as a sentence a shop worker can read, never as the raw entry document.
 async function createAuditLog(
   prisma: PrismaClient,
   input: {
@@ -591,7 +563,6 @@ const DISPLAY_DATE_FORMATTER = new Intl.DateTimeFormat("en-IN", {
   timeZone: "UTC",
 });
 
-/** "05 Mar 2026" from a YYYY-MM-DD business date. */
 function formatDisplayDate(dateString: string) {
   const parsed = new Date(`${dateString}T00:00:00.000Z`);
   return Number.isNaN(parsed.getTime())
@@ -777,14 +748,6 @@ export async function getLedgerByDate(
 ): Promise<DailyLedgerResponse> {
   const prisma = getPrisma(app);
 
-  /**
-   * Important performance optimization:
-   *
-   * The previous implementation first queried the customer and
-   * then queried the ledger. The ledger already contains the
-   * required customer relation, so the extra customer query is
-   * unnecessary.
-   */
   const ledger = await getLedgerOrThrow(
     prisma,
     customerId,
@@ -798,18 +761,6 @@ export async function getLedgerByDate(
     ),
   ];
 
-  /**
-   * One user query regardless of the number of entries.
-   *
-   * Previously:
-   *   entry 1 -> user query
-   *   entry 2 -> user query
-   *   entry 3 -> user query
-   *   ...
-   *
-   * Now:
-   *   all unique users -> one query
-   */
   const userSummaryMap =
     await loadUserSummaryMap(
       prisma,
@@ -833,10 +784,6 @@ export async function getCustomerLedgers(
   const limit = query.limit ?? 20;
   const where = buildLedgerWhere(customerId, query);
 
-  /**
-   * Only the requested page is loaded. Previously every ledger the customer
-   * had ever had was pulled into memory just to slice one page out of it.
-   */
   const totalItems = await prisma.dailyLedger.count({ where });
   const { skip, pageInfo } = buildLedgerPageInfo(totalItems, page, limit);
 
@@ -848,7 +795,6 @@ export async function getCustomerLedgers(
     select: LEDGER_SELECT,
   });
 
-  // One user lookup for the whole page, not one per entry.
   const userIds = ledgers.flatMap((ledger: any) => [
     ledger.updatedBy.id,
     ...(ledger.entries ?? []).map((entry: any) => entry.createdById),
@@ -869,8 +815,6 @@ export async function getCustomerLedgerSummary(
 ): Promise<DailyLedgerSummaryResponse> {
   const prisma = getPrisma(app);
 
-  // The summary only needs the entry arrays, so it skips the customer, card
-  // and user joins that the list query performs.
   const ledgers: Array<{ entries: unknown[] }> = await prisma.dailyLedger.findMany({
     where: buildLedgerWhere(customerId, query),
     select: { entries: true },
@@ -989,8 +933,6 @@ export async function addLedgerEntry(
   });
 
   const entry = {
-    // Stable for the life of the entry, so edits and deletions from any device
-    // always address the row the user actually selected.
     id: nanoid(12),
     createdAt: new Date(),
     createdById: performedById,
@@ -1028,6 +970,7 @@ export async function addLedgerEntry(
                   assignment.id,
                 ledgerDate,
                 entries: [entry],
+                noPurchase: false,
                 updatedById:
                   performedById,
               },
@@ -1072,6 +1015,8 @@ export async function addLedgerEntry(
                 ...(existing.entries ?? []),
                 entry,
               ],
+              // An entry contradicts the mark, so recording one lifts it.
+              noPurchase: false,
               updatedById:
                 performedById,
             },
@@ -1118,16 +1063,7 @@ export async function addLedgerEntry(
   );
 }
 
-/**
- * Applies a change to one entry, addressed by its stable id.
- *
- * Read and write happen in a single transaction so two devices editing the
- * same day cannot overwrite each other: the second writer sees the first
- * writer's version and either applies cleanly or is told the entry has moved
- * on. Previously this read the array, mutated it in memory and wrote it back
- * with no transaction at all, so the later write silently discarded the
- * earlier one.
- */
+// Read and write in one transaction, so two devices editing a day cannot overwrite each other.
 export async function updateLedgerEntry(
   app: FastifyInstance,
   customerId: string,
@@ -1148,8 +1084,6 @@ export async function updateLedgerEntry(
 
   const ledgerDate = dateStringToBusinessDate(date);
 
-  // Resolving milk types and products hits the database, so it happens before
-  // the transaction opens rather than inside it.
   const existingLedger = await getLedgerOrThrow(prisma, customerId, date);
   const oldEntry = findEntryById(existingLedger.entries, entryId);
 
@@ -1173,8 +1107,6 @@ export async function updateLedgerEntry(
   });
 
   const result = await prisma.$transaction(async (tx: PrismaClient) => {
-    // Re-read inside the transaction: the entry may have been changed or
-    // removed between the read above and this write.
     const current = await tx.dailyLedger.findUnique({
       where: { customerId_ledgerDate: { customerId, ledgerDate } },
       select: { id: true, entries: true },
@@ -1231,13 +1163,7 @@ export async function updateLedgerEntry(
   return normalizeLedger(result.ledger, await loadLedgerUsers(prisma, result.ledger));
 }
 
-/**
- * Removes one entry, addressed by its stable id.
- *
- * Deleting by position was the more dangerous half of the old design: if
- * another device removed an earlier entry first, this deleted a row the user
- * had never selected, and the audit log recorded it as intentional.
- */
+// Addressed by id: deleting by position removed whatever had shifted into that slot.
 export async function deleteLedgerEntry(
   app: FastifyInstance,
   customerId: string,
@@ -1293,7 +1219,7 @@ export async function deleteLedgerEntry(
   return normalizeLedger(result.ledger, await loadLedgerUsers(prisma, result.ledger));
 }
 
-/** Throws a 404 shaped for the API when the id is not on the ledger. */
+// Returns undefined when another device has already removed the entry.
 function findEntryById(entries: unknown, entryId: string): any {
   const found = ((entries ?? []) as any[]).find((entry) => entry.id === entryId);
 
@@ -1304,7 +1230,186 @@ function findEntryById(entries: unknown, entryId: string): any {
   return found;
 }
 
-/** Creator and editor summaries for every entry on a ledger, in one query. */
+// How far the shop has got with data entry: the single most recently recorded entry.
+//
+// Scanned over the most recently touched ledgers rather than the whole
+// collection. The ledger holding the newest entry is necessarily among them,
+// because writing an entry also stamps its ledger's updatedAt, and editing an
+// old day cannot hide a newer entry from a window this wide.
+const LAST_ENTRY_SCAN_LIMIT = 200;
+
+// Records that a customer was checked on this day and bought nothing. That is a positive
+// statement, so it is stored rather than inferred: an empty day and an unvisited day look
+// identical otherwise, which is exactly what leaves the family unsure where to resume.
+export async function setLedgerNoPurchase(
+  app: FastifyInstance,
+  customerId: string,
+  date: string,
+  noPurchase: boolean,
+  performedById: string,
+): Promise<DailyLedgerNoPurchaseResponse> {
+  const prisma = getPrisma(app);
+  const assignment = await getAssignmentForLedgerDateOrThrow(prisma, customerId, date);
+  const ledgerDate = dateStringToBusinessDate(date);
+
+  const result = await prisma.$transaction(async (tx: PrismaClient) => {
+    const existing = await tx.dailyLedger.findUnique({
+      where: { customerId_ledgerDate: { customerId, ledgerDate } },
+      select: { id: true, entries: true, noPurchase: true },
+    });
+
+    if (noPurchase && (existing?.entries?.length ?? 0) > 0) {
+      throw createHttpError(
+        409,
+        "This day already has entries. Remove them before marking it as no purchase.",
+      );
+    }
+
+    if (!existing) {
+      // Clearing a day nobody ever touched is already the state being asked for.
+      if (!noPurchase) return { ledger: null, changed: false };
+
+      const ledger = await tx.dailyLedger.create({
+        data: {
+          customerId,
+          cardAssignmentId: assignment.id,
+          ledgerDate,
+          entries: [],
+          noPurchase: true,
+          updatedById: performedById,
+        },
+        select: LEDGER_SELECT,
+      });
+
+      return { ledger, changed: true };
+    }
+
+    // Clearing the mark on a day that holds nothing returns it to never-touched.
+    // Leaving an empty row behind would count as progress the round never made.
+    if (!noPurchase && (existing.entries?.length ?? 0) === 0) {
+      await tx.dailyLedger.delete({ where: { id: existing.id } });
+
+      return { ledger: null, changed: existing.noPurchase === true };
+    }
+
+    const ledger = await tx.dailyLedger.update({
+      where: { id: existing.id },
+      data: { noPurchase, updatedById: performedById },
+      select: LEDGER_SELECT,
+    });
+
+    return { ledger, changed: (existing.noPurchase ?? false) !== noPurchase };
+  }, TX_OPTIONS);
+
+  if (result.changed && result.ledger) {
+    await createAuditLog(prisma, {
+      customerId,
+      performedById,
+      type: "entry_updated",
+      title: noPurchase
+        ? `Marked as no purchase for ${formatDisplayDate(date)}`
+        : `No purchase mark removed for ${formatDisplayDate(date)}`,
+      ledgerId: result.ledger.id,
+      ledgerDate: date,
+    });
+  }
+
+  if (!result.ledger) {
+    return { customerId, ledgerDate: date, noPurchase: false, ledger: null };
+  }
+
+  const userSummaryMap = await loadUserSummaryMap(prisma, [result.ledger.updatedBy.id]);
+
+  return {
+    customerId,
+    ledgerDate: date,
+    noPurchase,
+    ledger: normalizeLedger(result.ledger, userSummaryMap),
+  };
+}
+
+export async function getLastLedgerEntry(
+  app: FastifyInstance,
+): Promise<LastLedgerEntryResponse | null> {
+  const prisma = getPrisma(app);
+
+  const ledgers = await prisma.dailyLedger.findMany({
+    orderBy: { updatedAt: "desc" },
+    take: LAST_ENTRY_SCAN_LIMIT,
+    select: {
+      ledgerDate: true,
+      entries: true,
+      noPurchase: true,
+      updatedAt: true,
+      updatedById: true,
+      customer: { select: { id: true, fullName: true } },
+      cardAssignment: { select: { card: { select: { cardNumber: true } } } },
+    },
+  });
+
+  let best: {
+    ledgerDate: Date;
+    cardNumber: number | null;
+    customerId: string;
+    customerName: string;
+    recordedAt: Date;
+    createdById: string;
+    noPurchase: boolean;
+  } | null = null;
+
+  for (const ledger of ledgers) {
+    const candidates: Array<{ recordedAt: Date; createdById: string; noPurchase: boolean }> =
+      ledger.entries.map((entry: { createdAt: Date; createdById: string }) => ({
+        recordedAt: entry.createdAt,
+        createdById: entry.createdById,
+        noPurchase: false,
+      }));
+
+    // Confirming that nothing was bought is real progress through the round, so the
+    // marker has to move onto that day too.
+    if (ledger.noPurchase === true && ledger.entries.length === 0) {
+      candidates.push({
+        recordedAt: ledger.updatedAt,
+        createdById: ledger.updatedById,
+        noPurchase: true,
+      });
+    }
+
+    for (const candidate of candidates) {
+      if (best && candidate.recordedAt <= best.recordedAt) continue;
+
+      best = {
+        ledgerDate: ledger.ledgerDate,
+        cardNumber: ledger.cardAssignment?.card?.cardNumber ?? null,
+        customerId: ledger.customer.id,
+        customerName: ledger.customer.fullName,
+        recordedAt: candidate.recordedAt,
+        createdById: candidate.createdById,
+        noPurchase: candidate.noPurchase,
+      };
+    }
+  }
+
+  if (!best) return null;
+
+  const recordedBy = await prisma.user.findUnique({
+    where: { id: best.createdById },
+    select: USER_SUMMARY_SELECT,
+  });
+
+  return {
+    ledgerDate: toBusinessDateString(best.ledgerDate),
+    cardNumber: best.cardNumber,
+    customerId: best.customerId,
+    customerName: best.customerName,
+    recordedAt: best.recordedAt.toISOString(),
+    recordedBy: recordedBy
+      ? { id: recordedBy.id, fullName: recordedBy.fullName, status: recordedBy.status }
+      : null,
+    noPurchase: best.noPurchase,
+  };
+}
+
 async function loadLedgerUsers(prisma: PrismaClient, ledger: any) {
   return loadUserSummaryMap(prisma, [
     ledger.updatedBy.id,

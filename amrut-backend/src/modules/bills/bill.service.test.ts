@@ -19,14 +19,7 @@ describe("getDepositCredit", () => {
   });
 });
 
-/**
- * The rule these tests protect: an unpaid balance lives in exactly one place.
- *
- * When a new bill is generated, earlier open balances move onto it as
- * `previousDue` and are cleared from the bills they came from. If they were
- * left in place as well, every "total outstanding" figure in the app would
- * double-count them, and the error would compound each month.
- */
+// The rule under test: an unpaid balance must exist in exactly one place.
 describe("carrying balances forward", () => {
   const bill = (month: number, year: number, outstandingAmount: number) => ({
     month,

@@ -43,8 +43,7 @@ export const useAuthStore = create<AuthState>()(
         try {
           await authAPI.logout();
         } catch (error) {
-          // The endpoint is idempotent, so this only happens when the network
-          // is down. Say so plainly rather than leaving the user guessing.
+          // The endpoint is idempotent, so this only happens when the network is down.
           set({
             logoutError: getApiErrorMessage(
               error,
@@ -65,10 +64,6 @@ export const useAuthStore = create<AuthState>()(
 
       setUser: (user) => set({ user }),
 
-      /**
-       * Called when the API layer silently exchanges the refresh cookie for a
-       * new access token, so the store never holds a stale one.
-       */
       setToken: (token) => set({ token, isAuthenticated: true }),
 
       setLoading: (isLoading) => set({ isLoading }),

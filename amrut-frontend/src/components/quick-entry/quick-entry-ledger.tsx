@@ -111,9 +111,6 @@ export default function QuickEntryLedger({
   const updateEntryMutation = useUpdateDailyLedgerEntryMutation();
   const deleteEntryMutation = useDeleteDailyLedgerEntryMutation();
 
-  // Correcting an entry and removing one are separate permissions: counter
-  // staff fix their own typos, but taking a charge off the ledger is a
-  // manager's call.
   const { can } = usePermissions();
   const canEditEntries = can(PERMISSIONS.LEDGER_ENTRY_UPDATE);
   const canDeleteEntries = can(PERMISSIONS.LEDGER_ENTRY_DELETE);
@@ -248,10 +245,6 @@ export default function QuickEntryLedger({
   const hasLedger = entryRows.length > 0;
   const ledgerDateLabel = formatDate(summary.ledgerDate);
 
-  /**
-   * Looked up by id, not position: another device may have removed an entry
-   * since this page loaded, which would shift every index after it.
-   */
   function getOriginalEntry(entryId: string) {
     return ledger?.entries.find((entry) => entry.id === entryId);
   }
@@ -481,7 +474,6 @@ export default function QuickEntryLedger({
                         {TIME_FORMATTER.format(entry.time)}
                       </div>
 
-                      {/* Timeline rail is intentionally removed on mobile. */}
                       <div className="relative hidden justify-center sm:flex">
                         <div className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-neutral-300" />
 
@@ -654,7 +646,7 @@ export default function QuickEntryLedger({
               type="button"
               variant="outline"
               className="h-11 w-full gap-2"
-              disabled={!hasLedger || !customer}
+              disabled={!customer}
               onClick={() => {
                 if (!customer) {
                   return;

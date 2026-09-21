@@ -58,7 +58,7 @@ export interface CardListPageInfo {
 
 export interface CardListResponse {
   items: CardResponse[];
-  /** Counted across all cards, so the tiles stay stable while filtering. */
+  // Counted across all cards, so the tiles stay stable while filtering. */
   summary: CardSummaryResponse;
   pageInfo: CardListPageInfo;
 }

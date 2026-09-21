@@ -1,15 +1,4 @@
-/**
- * Permission names, mirrored from the API.
- *
- * ⚠️ Who gets what is decided on the server, in
- * `amrut-backend/src/app/auth/permissions.ts`. That file is the only place to
- * change access. This one just names the permissions so the UI can refer to
- * them without string literals scattered through components — the actual list
- * for the signed-in user arrives with their profile.
- *
- * Hiding a control here is courtesy, not security. The API re-checks every
- * request regardless of what the UI chose to show.
- */
+// Names only: who gets what is decided by the server and arrives with the user's profile.
 export const PERMISSIONS = {
   CUSTOMER_VIEW: "customer.view",
   CUSTOMER_CREATE: "customer.create",
@@ -59,7 +48,7 @@ export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 export type UserRole = "owner" | "manager" | "employee" | "guest";
 
-/** Pages a user can reach, and the permission each one needs. */
+// Hiding a route is courtesy; the API re-checks every request behind it.
 export const ROUTE_PERMISSIONS = {
   "/dashboard": null,
   "/customers": PERMISSIONS.CUSTOMER_VIEW,

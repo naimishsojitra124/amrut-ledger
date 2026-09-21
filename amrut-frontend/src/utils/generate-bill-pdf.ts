@@ -41,11 +41,7 @@ type GenerateBillPdfOptions = {
   customer: CustomerDetails;
 };
 
-/**
- * Whole rupees, matching both the stored values and the on-screen figures.
- * The printed bill and the app used to disagree because this rendered two
- * decimals while the UI rounded to none.
- */
+// Whole rupees, so the printed bill matches the figures on screen.
 function formatCurrency(value: number): string {
   return `Rs. ${Math.round(Number(value) || 0).toLocaleString("en-IN")}`;
 }

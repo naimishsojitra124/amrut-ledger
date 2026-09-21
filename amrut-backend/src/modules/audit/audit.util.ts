@@ -1,14 +1,3 @@
-/**
- * Audit logs are read by shop staff, not by developers.
- *
- * Everything written through these helpers must therefore be phrased the way
- * it would be said out loud: "Card number", not `cardId`; "Rs. 1,250", not
- * `1250`; "Buffalo 54 at Rs. 54/L", not an ObjectId or a JSON blob. Nothing in
- * an audit detail should ever be a database identifier — the ids that a
- * developer needs live on the log row itself (`relatedEntityType` /
- * `relatedEntityId`), not in the text the user sees.
- */
-
 export interface AuditChange {
   field: string;
   oldValue: string;
@@ -45,10 +34,6 @@ export function formatText(value: unknown): string {
   return String(value).trim();
 }
 
-/**
- * A single before/after row. Rows where nothing actually changed are dropped by
- * `collectChanges`, so callers can list every field they touched.
- */
 export function change(field: string, oldValue: unknown, newValue: unknown): AuditChange {
   return {
     field,

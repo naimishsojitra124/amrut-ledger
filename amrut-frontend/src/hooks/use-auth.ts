@@ -41,10 +41,6 @@ export const useAuth = () => {
       hasRole: (roles: UserRole[]) => !!user && roles.includes(user.role),
       /** Signed in through the public demo rather than as a real account. */
       isGuest: user?.role === "guest",
-      /**
-       * Prefer this over the role flags above: it follows the server's access
-       * matrix, so a change there does not need a matching change here.
-       */
       can: (permission: Permission) => !!user?.permissions?.includes(permission),
     };
   }, [user]);

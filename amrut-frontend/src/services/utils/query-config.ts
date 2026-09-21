@@ -1,5 +1,6 @@
 import axios from "axios";
 
+// Tuned per query: how long each kind of data can be trusted without refetching.
 export const QUERY_STALE_TIMES = {
   customersList: 90_000,
   customerStats: 75_000,
@@ -95,12 +96,6 @@ function getStatusCode(error: unknown): number | undefined {
   return undefined;
 }
 
-/**
- * Network/server failures may be retried once.
- *
- * Client validation/auth/permission/not-found failures should not be
- * retried because repeating the same request will not fix them.
- */
 export function retryQuery(failureCount: number, error: unknown): boolean {
   if (failureCount >= 1) {
     return false;
@@ -123,12 +118,6 @@ export function retryQuery(failureCount: number, error: unknown): boolean {
   return true;
 }
 
-/**
- * Refetching on focus is what makes a second device feel current without
- * anyone reloading: returning to the tab pulls whatever changed while it was
- * in the background. The per-query `staleTime` keeps this from turning into a
- * request on every alt-tab.
- */
 export const STANDARD_QUERY_BEHAVIOR = {
   refetchOnWindowFocus: true,
   refetchOnReconnect: true,

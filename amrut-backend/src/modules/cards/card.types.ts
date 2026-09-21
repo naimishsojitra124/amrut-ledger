@@ -47,7 +47,6 @@ export interface CardListPageInfo {
 
 export interface CardListResponse {
   items: CardResponse[];
-  /** Counted across all cards, so the totals do not change as you filter. */
   summary: CardSummaryResponse;
   pageInfo: CardListPageInfo;
 }

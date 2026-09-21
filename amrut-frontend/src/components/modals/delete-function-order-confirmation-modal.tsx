@@ -42,7 +42,7 @@ export default function DeleteFunctionOrderConfirmationModal() {
 
       closeModal();
     } catch {
-      // Already surfaced by the global error handler.
+      // Already reported by the global error handler.
     }
   }
 
@@ -78,7 +78,7 @@ export default function DeleteFunctionOrderConfirmationModal() {
           </div>
         </DialogHeader>
 
-        <div className="px-4 py-5 sm:px-6 sm:py-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-6">
           <div className="rounded-xl border bg-neutral-50 p-4">
             <p className="text-sm leading-6 text-neutral-600">
               This action permanently removes the function order and its
@@ -87,7 +87,7 @@ export default function DeleteFunctionOrderConfirmationModal() {
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
+        <DialogFooter className="mx-0 mb-0 shrink-0 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
           <Button
             type="button"
             variant="outline"

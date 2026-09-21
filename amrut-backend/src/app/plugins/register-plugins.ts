@@ -5,6 +5,9 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import { env } from "@/config/env";
 
+import { requestMetaPlugin } from "@/app/observability/request-meta.plugin";
+import { RESPONSE_META_HEADERS } from "@/app/observability/request-meta.types";
+
 import { prismaPlugin } from "./prisma.plugin.js";
 import { jwtPlugin } from "./jwt.plugin.js";
 import { swaggerPlugin } from "./swagger.plugin.js";
@@ -23,24 +26,12 @@ export async function registerAppPlugins(app: FastifyInstance) {
     },
     crossOriginResourcePolicy: { policy: "same-site" },
   });
-  /**
-   * The app runs behind a proxy (Vercel / Render / nginx), so `request.ip` is
-   * the proxy's address unless `trustProxy` is set on the server — see app.ts.
-   * With that in place each device gets its own bucket again; previously the
-   * whole shop shared one, and `ban` could lock every user out at once.
-   *
-   * The limit is deliberately generous for normal use. Authentication gets a
-   * far tighter, dedicated limiter in auth.route.ts.
-   */
+  // Keyed on IP: the JWT is not verified yet at onRequest, so per-account limiting is impossible here.
   await app.register(rateLimit, {
     global: true,
     max: 300,
     timeWindow: "1 minute",
-    keyGenerator: (request) => {
-      // Authenticated users are limited per account, not per shared IP.
-      const user = request.user as { sub?: string } | undefined;
-      return user?.sub ?? request.ip;
-    },
+    keyGenerator: (request) => request.ip,
     errorResponseBuilder: (_request, context) => ({
       statusCode: 429,
       error: "Too Many Requests",
@@ -51,7 +42,12 @@ export async function registerAppPlugins(app: FastifyInstance) {
     origin: env.corsOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    // Cross-origin reads see no response header unless it is named here.
+    exposedHeaders: [...RESPONSE_META_HEADERS],
   });
+
+  // First, so the timing it records covers every later plugin and handler.
+  await app.register(requestMetaPlugin);
 
   await app.register(sensible);
   await app.register(prismaPlugin);
@@ -59,7 +55,6 @@ export async function registerAppPlugins(app: FastifyInstance) {
   await app.register(swaggerPlugin);
   await app.register(websocketPlugin);
 
-  // Inert unless DEMO_MODE is on. Rebuilds the sample data on a schedule so a
-  // shared, fully writable demo cannot be spoiled permanently.
+  // Inert unless DEMO_MODE is on.
   startDemoResetSchedule(app);
 }

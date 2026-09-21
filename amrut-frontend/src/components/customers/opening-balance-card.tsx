@@ -12,14 +12,6 @@ import { formatCurrency } from "@/utils/format-currency";
 import { usePermissions } from "@/hooks/use-permissions";
 import { PERMISSIONS } from "@/config/permissions";
 
-/**
- * The balance a customer was already carrying when the shop moved off paper.
- *
- * It is stored as a bill, so once recorded it behaves like any other
- * receivable: it can be paid, it is carried into the first generated bill, and
- * it counts towards the customer's outstanding total.
- */
-
 const MONTH_NAMES = [
   "January",
   "February",
@@ -42,7 +34,7 @@ function formatPeriod(month: number, year: number) {
 /** The month that just ended — where a brought-forward balance belongs. */
 function previousPeriod() {
   const now = new Date();
-  const month = now.getMonth(); // 0-indexed, so this is already last month
+  const month = now.getMonth();
   return month === 0
     ? { month: 12, year: now.getFullYear() - 1 }
     : { month, year: now.getFullYear() };
@@ -146,7 +138,6 @@ export default function OpeningBalanceCard({
     );
   }
 
-  // Nothing recorded and nothing this user can do about it — say nothing.
   if (!canManage) return null;
 
   return (

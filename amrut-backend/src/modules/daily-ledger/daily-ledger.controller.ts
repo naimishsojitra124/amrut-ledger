@@ -3,6 +3,7 @@ import {
   addDailyLedgerEntrySchema,
   createDailyLedgerSchema,
   dailyLedgerDateParamSchema,
+  setNoPurchaseSchema,
   dailyLedgerEntryParamSchema,
   dailyLedgerListQuerySchema,
   customerIdParamSchema,
@@ -10,10 +11,12 @@ import {
 } from "./daily-ledger.schema";
 import {
   addLedgerEntry,
+  setLedgerNoPurchase,
   createTodayLedger,
   deleteLedgerEntry,
   getCustomerLedgerSummary,
   getCustomerLedgers,
+  getLastLedgerEntry,
   getLedgerByDate,
   getTodayLedger,
   updateLedgerEntry,
@@ -156,4 +159,27 @@ export async function deleteLedgerEntryHandler(
   );
 
   return reply.send(result);
+}
+export async function getLastLedgerEntryHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const result = await getLastLedgerEntry(request.server);
+
+  return reply.send(result);
+}
+
+export async function setNoPurchaseHandler(request: FastifyRequest, reply: FastifyReply) {
+  const { customerId, date } = dailyLedgerDateParamSchema.parse(request.params);
+  const body = setNoPurchaseSchema.parse(request.body);
+
+  return reply.send(
+    await setLedgerNoPurchase(
+      request.server,
+      customerId,
+      date,
+      body.noPurchase,
+      getCurrentUserId(request),
+    ),
+  );
 }

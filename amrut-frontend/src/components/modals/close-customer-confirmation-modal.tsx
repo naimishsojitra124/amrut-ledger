@@ -45,8 +45,7 @@ export default function CloseCustomerConfirmModal() {
 
       closeModal();
     } catch {
-      // Mutation errors are handled by
-      // the existing customer mutation layer.
+      // Already reported by the global error handler.
     }
   }
 
@@ -82,7 +81,7 @@ export default function CloseCustomerConfirmModal() {
           </div>
         </DialogHeader>
 
-        <div className="px-4 py-5 sm:px-6 sm:py-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-6">
           <div className="rounded-xl border border-red-100 bg-red-50/60 p-4">
             <div className="flex items-center justify-between gap-4">
               <span className="text-sm text-neutral-600">
@@ -101,7 +100,7 @@ export default function CloseCustomerConfirmModal() {
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
+        <DialogFooter className="mx-0 mb-0 shrink-0 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
           <Button
             type="button"
             variant="outline"

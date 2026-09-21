@@ -31,6 +31,7 @@ import {
   moneyChange,
 } from "../audit/audit.util";
 import { TX_OPTIONS } from "@/app/db/transaction";
+import { searchTerm } from "@/app/db/search";
 
 type CardAssignmentWithRelations = Prisma.CardAssignmentGetPayload<{
   include: {
@@ -152,12 +153,6 @@ function getPrisma(app: FastifyInstance) {
   return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
 }
 
-/**
- * Audit rows are collected while a transaction runs and written in one go.
- *
- * `create` round-trips twice (insert, then read the row back); `createMany`
- * does neither, so batching four audit writes saves eight round trips.
- */
 type PendingAuditLog = {
   customerId: string;
   type: any;
@@ -168,6 +163,7 @@ type PendingAuditLog = {
   relatedEntityId?: string | null;
 };
 
+// Audit rows are batched into one createMany; four separate creates cost eight round trips.
 function makeAuditCollector() {
   const entries: PendingAuditLog[] = [];
 
@@ -458,21 +454,13 @@ export function buildPageInfo(totalItems: number, page: number, limit: number): 
   };
 }
 
-/**
- * Mobile numbers are optional. A blank string is stored as "no number" rather
- * than as an empty value so that searching, display and duplicate reporting
- * all treat "not provided" the same way.
- */
+// Mobile numbers are optional, and a blank one is stored as absent rather than as "".
 function normalizeMobileNumber(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 }
 
-/**
- * Several customers may legitimately share a household phone, so the number is
- * not unique. We still warn about an exact re-use because it is more often a
- * typo than a genuine shared line.
- */
+// Households legitimately share a number, so this warns rather than blocks.
 async function findCustomersSharingMobile(
   prisma: PrismaClient,
   mobileNumber: string | null,
@@ -523,6 +511,7 @@ async function getNextCardNumber(tx: PrismaClient) {
   return (lastCard?.cardNumber ?? 0) + 1;
 }
 
+// Resolved before the transaction: a spare Card row costs nothing if the request later fails.
 async function resolveCardForCustomer(tx: PrismaClient, inputCardNumber: number | undefined) {
   if (inputCardNumber !== undefined) {
     const existing = await tx.card.findUnique({
@@ -634,8 +623,6 @@ async function assignCardToCustomer(
   }
 
   if (activeAssignmentForCustomer) {
-    // Load the card so the log can name it. `cardId` is a database identifier
-    // and must never reach the audit trail the user reads.
     const previousCard = await tx.card.findUnique({
       where: { id: activeAssignmentForCustomer.cardId },
       select: { cardNumber: true },
@@ -696,7 +683,7 @@ async function buildCustomerListWhere(prisma: PrismaClient, query: CustomerListQ
 
   if (query.status) where.status = query.status;
 
-  const search = query.search?.trim();
+  const search = searchTerm(query.search);
   if (search) {
     const customerFieldMatches: Prisma.CustomerWhereInput[] = [
       { fullName: { contains: search, mode: "insensitive" } },
@@ -705,9 +692,6 @@ async function buildCustomerListWhere(prisma: PrismaClient, query: CustomerListQ
     ];
 
     if (/^\d+$/.test(search)) {
-      // Card numbers are Ints, so Prisma cannot substring-match them. Matching
-      // on the exact number keeps this to one indexed lookup; the previous
-      // implementation loaded every card in the system on each keystroke.
       const cardNumber = Number(search);
 
       if (Number.isSafeInteger(cardNumber) && cardNumber > 0) {
@@ -734,6 +718,66 @@ async function buildCustomerListWhere(prisma: PrismaClient, query: CustomerListQ
   return where;
 }
 
+// Sorting happens here because a customer's card number lives on Card, reached through the
+// open CardAssignment, and MongoDB cannot order one collection by a joined field.
+const CUSTOMER_SORT_SELECT = {
+  id: true,
+  fullName: true,
+  status: true,
+  milkTypes: true,
+} satisfies Prisma.CustomerSelect;
+
+type CustomerSortRow = Prisma.CustomerGetPayload<{ select: typeof CUSTOMER_SORT_SELECT }>;
+
+// Unfiltered so it can run alongside the customer query; one small document per open card.
+async function loadActiveCardNumberMap(prisma: PrismaClient) {
+  const assignments = await prisma.cardAssignment.findMany({
+    where: { unassignedAt: null },
+    orderBy: { assignedAt: "desc" },
+    select: { customerId: true, card: { select: { cardNumber: true } } },
+  });
+
+  const map = new Map<string, number>();
+  for (const assignment of assignments) {
+    if (!map.has(assignment.customerId)) {
+      map.set(assignment.customerId, assignment.card.cardNumber);
+    }
+  }
+
+  return map;
+}
+
+// The shop reads customers off the card shelf, so the list follows it: open cards in
+// number order, then anyone currently without a card, then closed accounts last.
+function compareByCardOrder(
+  a: Pick<CustomerSortRow, "id" | "fullName" | "status">,
+  b: Pick<CustomerSortRow, "id" | "fullName" | "status">,
+  cardNumbers: Map<string, number>,
+): number {
+  const aClosed = a.status === "archived" ? 1 : 0;
+  const bClosed = b.status === "archived" ? 1 : 0;
+  if (aClosed !== bClosed) return aClosed - bClosed;
+
+  const aCard = cardNumbers.get(a.id);
+  const bCard = cardNumbers.get(b.id);
+
+  if (aCard !== undefined && bCard === undefined) return -1;
+  if (aCard === undefined && bCard !== undefined) return 1;
+  if (aCard !== undefined && bCard !== undefined && aCard !== bCard) return aCard - bCard;
+
+  const byName = a.fullName.localeCompare(b.fullName, "en");
+  if (byName !== 0) return byName;
+
+  // Paging needs a total order, or a tied customer can repeat on one page and skip the next.
+  return a.id.localeCompare(b.id);
+}
+
+export function sortCustomersByCardOrder<
+  T extends Pick<CustomerSortRow, "id" | "fullName" | "status">,
+>(customers: T[], cardNumbers: Map<string, number>): T[] {
+  return [...customers].sort((a, b) => compareByCardOrder(a, b, cardNumbers));
+}
+
 async function fetchCustomerBaseList(
   prisma: PrismaClient,
   query: CustomerListQuery,
@@ -741,46 +785,64 @@ async function fetchCustomerBaseList(
   limit: number,
 ) {
   const where = await buildCustomerListWhere(prisma, query);
-  const skip = (page - 1) * limit;
 
-  const [totalItems, customers] = await Promise.all([
-    prisma.customer.count({ where }),
-    prisma.customer.findMany({
-      where,
-      orderBy: [{ createdAt: "asc" }],
-      skip,
-      take: limit,
-      select: CUSTOMER_LIST_SELECT,
-    }),
+  // The whole matching roster is ranked before paging, so the projection stays minimal.
+  const [matches, cardNumbers] = await Promise.all([
+    prisma.customer.findMany({ where, select: CUSTOMER_SORT_SELECT }),
+    loadActiveCardNumberMap(prisma),
   ]);
 
-  const customerIds = customers.map((customer) => customer.id);
+  const ranked = sortCustomersByCardOrder(matches, cardNumbers);
+  const totalItems = ranked.length;
 
-  const [outstandingByCustomer, lastEntryByCustomer, currentCardByCustomer, milkTypesByCustomer] =
-    await Promise.all([
-      loadCustomerOutstandingMap(prisma, customerIds),
-      loadCustomerLastEntryMap(prisma, customerIds),
-      loadCustomerCurrentCardMap(prisma, customerIds),
-      loadCustomerMilkTypesMap(prisma, customers),
-    ]);
+  const skip = (page - 1) * limit;
+  const pageRows = ranked.slice(skip, skip + limit);
+  const customerIds = pageRows.map((row) => row.id);
 
-  const normalized = customers.map((customer) => ({
-    id: customer.id,
-    fullName: customer.fullName,
-    searchName: customer.searchName,
-    mobileNumber: customer.mobileNumber ?? "",
-    address: customer.address,
-    depositAmount: customer.depositAmount ?? 0,
-    status: customer.status,
-    milkTypes: milkTypesByCustomer.get(customer.id) ?? [],
-    currentCard: currentCardByCustomer.get(customer.id) ?? null,
-    outstandingAmount: outstandingByCustomer.get(customer.id) ?? 0,
-    lastEntryAt: lastEntryByCustomer.get(customer.id) ?? null,
-    notes: customer.notes ?? "",
-    archivedAt: toIso(customer.archivedAt),
-    createdAt: customer.createdAt.toISOString(),
-    updatedAt: customer.updatedAt.toISOString(),
-  }));
+  const [
+    customers,
+    outstandingByCustomer,
+    lastEntryByCustomer,
+    currentCardByCustomer,
+    milkTypesByCustomer,
+  ] = await Promise.all([
+    prisma.customer.findMany({
+      where: { id: { in: customerIds } },
+      select: CUSTOMER_LIST_SELECT,
+    }),
+    loadCustomerOutstandingMap(prisma, customerIds),
+    loadCustomerLastEntryMap(prisma, customerIds),
+    loadCustomerCurrentCardMap(prisma, customerIds),
+    loadCustomerMilkTypesMap(prisma, pageRows),
+  ]);
+
+  // findMany answers in storage order, so the ranking above is reapplied by id.
+  const byId = new Map(customers.map((customer) => [customer.id, customer]));
+
+  const normalized = customerIds.flatMap((customerId) => {
+    const customer = byId.get(customerId);
+    if (!customer) return [];
+
+    return [
+      {
+        id: customer.id,
+        fullName: customer.fullName,
+        searchName: customer.searchName,
+        mobileNumber: customer.mobileNumber ?? "",
+        address: customer.address,
+        depositAmount: customer.depositAmount ?? 0,
+        status: customer.status,
+        milkTypes: milkTypesByCustomer.get(customer.id) ?? [],
+        currentCard: currentCardByCustomer.get(customer.id) ?? null,
+        outstandingAmount: outstandingByCustomer.get(customer.id) ?? 0,
+        lastEntryAt: lastEntryByCustomer.get(customer.id) ?? null,
+        notes: customer.notes ?? "",
+        archivedAt: toIso(customer.archivedAt),
+        createdAt: customer.createdAt.toISOString(),
+        updatedAt: customer.updatedAt.toISOString(),
+      },
+    ];
+  });
 
   return { totalItems, items: normalized };
 }
@@ -863,9 +925,6 @@ export async function getCustomerStats(app: FastifyInstance): Promise<CustomerSt
     }),
   ]);
 
-  // A customer is considered to have a card when they have at least one
-  // active card assignment. Grouping by customerId preserves that behavior
-  // without loading every customer document into application memory.
   const customersWithActiveCard = await prisma.cardAssignment.groupBy({
     by: ["customerId"],
     where: { unassignedAt: null },
@@ -874,7 +933,6 @@ export async function getCustomerStats(app: FastifyInstance): Promise<CustomerSt
   const customersWithCard = customersWithActiveCard.length;
 
   return {
-    // Keep dashboard and customer-list consumers on the same contract.
     totalActiveCustomers: activeCustomers,
     totalClosedCustomers: archivedCustomers,
     totalOutstanding: 0,
@@ -901,17 +959,6 @@ function dueDateFor(month: number, year: number) {
   return new Date(Date.UTC(year, month, 10));
 }
 
-/**
- * Finds, or creates, the Card row a new customer should be given.
- *
- * Deliberately outside the transaction: a Card is just a number and a status,
- * so one created for a request that later fails is harmless (it stays
- * available), and keeping this out of the transaction is a large part of what
- * brought customer creation back under the transaction budget.
- *
- * Whether the card is actually free is re-checked inside the transaction —
- * see `assertCardIsFree`.
- */
 async function resolveCardForNewCustomer(
   prisma: PrismaClient,
   inputCardNumber: number | undefined,
@@ -941,12 +988,6 @@ async function resolveCardForNewCustomer(
   });
 }
 
-/**
- * Guards against two customers being created against the same card at once.
- *
- * Runs inside the transaction, so the check and the assignment that follows it
- * cannot be interleaved with another request picking the same free card.
- */
 async function assertCardIsFree(tx: PrismaClient, cardId: string, cardNumber: number) {
   const activeAssignment = await tx.cardAssignment.findFirst({
     where: { cardId, unassignedAt: null },
@@ -987,11 +1028,6 @@ export async function createCustomer(
     assertOpeningBalancePeriod(openingBalance.month, openingBalance.year);
   }
 
-  /**
-   * Everything that only reads, or that is safe to leave behind on failure,
-   * happens before the transaction opens. What remains inside is the smallest
-   * set of writes that must succeed or fail together.
-   */
   const [milkTypes, card] = await Promise.all([
     loadMilkTypeMap(prisma, milkTypesInput),
     resolveCardForNewCustomer(prisma, input.cardNumber),
@@ -1052,8 +1088,6 @@ export async function createCustomer(
       performedById,
     });
 
-    // `updateMany` does not read the row back, so it costs one round trip
-    // instead of two. Nothing here needs the updated card.
     await tx.card.updateMany({ where: { id: card.id }, data: { status: "assigned" } });
 
     const assignment = await tx.cardAssignment.create({
@@ -1127,15 +1161,7 @@ export async function createCustomer(
   return normalizeCustomer(prisma, result);
 }
 
-/**
- * The shop is moving onto this system mid-stream, so customers arrive already
- * owing money from months that were only ever recorded on paper.
- *
- * That balance is stored as an ordinary bill flagged `isOpeningBalance`. Doing
- * it this way means payments, carry-forward, statements, ageing and every
- * outstanding total work on it with no special cases — the only thing it lacks
- * is the milk and item lines, because that history does not exist here.
- */
+// Stored as a bill so payments, carry-forward and ageing need no special case for it.
 export function buildOpeningBalanceBill(input: {
   customerId: string;
   cardAssignmentId: string;
@@ -1163,8 +1189,6 @@ export function buildOpeningBalanceBill(input: {
     otherItems: [],
     otherItemsTotal: 0,
 
-    // Recorded as a previous due rather than as current charges: nothing was
-    // sold on this bill, it is a balance brought forward from paper records.
     previousDue: amount,
     grandTotal: amount,
     totalPaid: 0,
@@ -1199,11 +1223,7 @@ function openingBalanceAuditEntry(
   };
 }
 
-/**
- * An opening balance describes a period that has already finished. Allowing a
- * future month would let it sort ahead of real bills and never be carried
- * forward into them.
- */
+// Must name a finished month, or it would sort ahead of real bills and never carry forward.
 export function assertOpeningBalancePeriod(month: number, year: number) {
   const now = new Date();
   const currentMonth = now.getUTCMonth() + 1;
@@ -1214,10 +1234,6 @@ export function assertOpeningBalancePeriod(month: number, year: number) {
   }
 }
 
-/**
- * Records the balance a customer was already carrying, for customers that were
- * added before this was captured.
- */
 export async function setOpeningBalance(
   app: FastifyInstance,
   customerId: string,
@@ -1291,13 +1307,7 @@ export async function setOpeningBalance(
   }, TX_OPTIONS);
 }
 
-/**
- * Removes an opening balance that was entered wrongly.
- *
- * Only possible while it is untouched: once money has been received against it,
- * or its balance has been rolled into a later bill, deleting it would leave
- * those records pointing at nothing.
- */
+// Refused once paid against or carried forward, which would leave those records dangling.
 export async function removeOpeningBalance(
   app: FastifyInstance,
   customerId: string,
@@ -1411,7 +1421,6 @@ export async function updateCustomer(
   if (!existing) throw createHttpError(404, "Customer not found");
 
   const nextFullName = input.fullName?.trim() ?? existing.fullName;
-  // `mobileNumber: ""` is an explicit "clear this field", not "leave unchanged".
   const nextMobileNumber =
     input.mobileNumber === undefined
       ? existing.mobileNumber
@@ -1443,10 +1452,6 @@ export async function updateCustomer(
   }[] = [];
 
   if (input.primaryMilkTypeId || input.otherMilkTypeIds) {
-    /**
-     * Preserve the existing configuration
-     * before replacing it.
-     */
     const existingMilkTypes = existing.milkTypes as {
       milkTypeId: string;
       isDefault: boolean;
@@ -1458,9 +1463,6 @@ export async function updateCustomer(
       .filter((item) => !item.isDefault)
       .map((item) => item.milkTypeId);
 
-    /**
-     * Resolve the new configuration.
-     */
     const primaryMilkTypeId = input.primaryMilkTypeId ?? existingPrimaryMilkTypeId;
 
     const otherMilkTypeIds = input.otherMilkTypeIds ?? existingOtherMilkTypeIds;
@@ -1469,29 +1471,15 @@ export async function updateCustomer(
       throw createHttpError(400, "Primary milk type is required");
     }
 
-    /**
-     * Primary milk type must always
-     * appear first.
-     */
     const combined = [
       primaryMilkTypeId,
       ...otherMilkTypeIds.filter((id) => id !== primaryMilkTypeId),
     ];
 
-    /**
-     * Prevent duplicate milk types.
-     */
     if (new Set(combined).size !== combined.length) {
       throw createHttpError(400, "Milk types cannot contain duplicates");
     }
 
-    /**
-     * Load NEW milk type data.
-     *
-     * We need the rate for the audit log,
-     * while the customer document itself
-     * continues to store IDs.
-     */
     const loaded = await loadMilkTypeMap(
       prisma,
       combined.map((milkTypeId, index) => ({
@@ -1500,50 +1488,25 @@ export async function updateCustomer(
       })),
     );
 
-    /**
-     * Customer document continues to store
-     * IDs, not rates.
-     */
     nextMilkTypes = loaded.map((item) => ({
       milkTypeId: item.milkTypeId,
       isDefault: item.isDefault,
     }));
 
-    /**
-     * NEW milk type rate lookup.
-     */
     const newRateMap = new Map(loaded.map((item) => [item.milkTypeId, item.rate]));
     const newNameMap = new Map(loaded.map((item) => [item.milkTypeId, item.milkTypeName]));
 
-    /**
-     * Load OLD milk type data so that the
-     * audit log can preserve the rate that
-     * was configured before this update.
-     */
     const existingLoaded = await loadMilkTypeMap(prisma, existingMilkTypes);
 
-    /**
-     * OLD milk type rate lookup.
-     */
     const oldRateMap = new Map(existingLoaded.map((item) => [item.milkTypeId, item.rate]));
     const oldNameMap = new Map(existingLoaded.map((item) => [item.milkTypeId, item.milkTypeName]));
 
-    /**
-     * Resolve primary rates.
-     */
     const oldPrimaryRate = existingPrimaryMilkTypeId
       ? oldRateMap.get(existingPrimaryMilkTypeId)
       : undefined;
 
     const newPrimaryRate = newRateMap.get(primaryMilkTypeId);
 
-    /**
-     * Resolve other milk type rates.
-     */
-    /**
-     * Audit using human-meaningful values
-     * instead of Mongo/DB IDs.
-     */
     milkTypeChanges = collectChanges([
       change(
         AUDIT_FIELD.primaryMilkType,
@@ -1905,9 +1868,6 @@ export async function getCustomerStatement(app: FastifyInstance, id: string) {
       orderBy: { receivedAt: "asc" },
     }),
     prisma.depositTransaction.findMany({
-      // `bill_applied` movements are already represented by the payment's
-      // `depositUsed`. Including them here credited the same rupees twice and
-      // made the running balance drift away from the bills.
       where: { customerId: id, type: { not: "bill_applied" } },
       orderBy: { createdAt: "asc" },
     }),
@@ -2068,7 +2028,7 @@ export async function getCustomerBills(
   const prisma = getPrisma(app);
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
-  const search = query.search?.trim();
+  const search = searchTerm(query.search);
 
   const where: Prisma.BillWhereInput = { customerId: id };
   if (query.month !== undefined) where.month = query.month;
@@ -2208,7 +2168,7 @@ export async function getCustomerPayments(
   const prisma = getPrisma(app);
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
-  const search = query.search?.trim();
+  const search = searchTerm(query.search);
 
   const where: Prisma.PaymentWhereInput = { customerId: id };
   if (query.billId) where.billId = query.billId;
@@ -2230,8 +2190,6 @@ export async function getCustomerPayments(
     where.OR = searchMatches;
   }
 
-  // Reversed receipts stay in the list (staff need to see them) but must not
-  // be counted as money received.
   const activeWhere: Prisma.PaymentWhereInput = { ...where, reversedAt: null };
 
   const [totalItems, paymentAggregate, billAggregate, outstandingBillCount, nextOutstandingBill] =
@@ -2489,6 +2447,7 @@ export async function getCustomerDailyHistory(
     id: ledger.id,
     ledgerDate: ledger.ledgerDate.toISOString(),
     entries: ledger.entries as unknown[],
+    noPurchase: ledger.noPurchase ?? false,
     createdAt: ledger.createdAt.toISOString(),
     updatedAt: ledger.updatedAt.toISOString(),
   }));

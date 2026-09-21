@@ -14,8 +14,6 @@ function Input({ className, type, onInput, ...props }: React.ComponentProps<"inp
       onInput={(event) => {
         if (type === "number") {
           const field = event.currentTarget;
-          // Empty values must stay empty while typing; otherwise controlled
-          // numeric fields turn an intended "25" into "025" after backspace.
           field.value = field.value.replace(/^(-?)0+(?=\d)/, "$1");
         }
         onInput?.(event);

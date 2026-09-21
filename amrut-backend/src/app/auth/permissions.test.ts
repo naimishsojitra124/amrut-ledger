@@ -84,11 +84,7 @@ describe("role permissions", () => {
   });
 });
 
-/**
- * The rule that closes the privilege-escalation hole: a manager holds
- * USER_RESET_PASSWORD, so without this they could set the owner's password and
- * sign in as them.
- */
+// Closes the escalation hole: a manager holds the reset permission but must not reach the owner.
 describe("seniority", () => {
   it("stops a manager reaching an owner", () => {
     expect(roleHasPermission("manager", PERMISSIONS.USER_RESET_PASSWORD)).toBe(true);
@@ -116,14 +112,7 @@ describe("seniority", () => {
   });
 });
 
-/**
- * The public demo account.
- *
- * Guests get full access on purpose, so a reviewer can exercise the whole app.
- * What keeps that safe is not a narrower permission list — it is a throwaway
- * database, a scheduled rebuild, and the demo account being protected from the
- * visitors using it.
- */
+// Guests get full access on purpose; a throwaway database is what keeps that safe.
 describe("guest", () => {
   it("can do everything an owner can", () => {
     for (const permission of Object.values(PERMISSIONS)) {

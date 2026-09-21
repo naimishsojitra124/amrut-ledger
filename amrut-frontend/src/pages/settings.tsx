@@ -62,8 +62,6 @@ const TABS: SettingsTab[] = [
 export default function Settings() {
   const { can } = usePermissions();
 
-  // Only the tabs this user can actually open. Showing "Users & Roles" to
-  // someone who would just be refused is worse than not showing it.
   const visibleTabs = useMemo(
     () => TABS.filter((tab) => can(tab.permission)),
     [can],

@@ -46,6 +46,7 @@ export default function FullLedgerModal() {
               customerId={fullLedger.customerId}
               initialDate={fullLedger.selectedDate}
               outstandingAmount={fullLedger.outstandingAmount}
+              showGenerateBill
             />
           ) : null}
         </div>

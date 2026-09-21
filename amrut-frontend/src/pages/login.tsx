@@ -35,19 +35,11 @@ export default function Login() {
     meta: { suppressErrorToast: true },
   });
 
+  // Only shown where a demo exists; a normal deployment reports demoMode: false.
   const demoCredentials = demoConfig.data?.demoMode
     ? (demoConfig.data.demoCredentials ?? null)
     : null;
 
-  /*
-   * If Login was reached because a protected route redirected here,
-   * return to that original route after authentication.
-   *
-   * Example:
-   * /customers -> /login -> /customers
-   *
-   * Otherwise, normal login goes to /dashboard.
-   */
   const getPostLoginPath = useCallback(() => {
     const from = location.state?.from;
 
@@ -103,10 +95,6 @@ export default function Login() {
     }
   };
 
-  /**
-   * Fills the form rather than bypassing it, so a reviewer sees the same login
-   * path any other user takes — and can read the credentials being used.
-   */
   const handleUseDemoCredentials = async () => {
     if (!demoCredentials) return;
 

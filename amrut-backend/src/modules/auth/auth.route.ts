@@ -10,18 +10,10 @@ import {
   sessionsHandler,
 } from "./auth.controller";
 
-/**
- * Credential endpoints get their own, much tighter limit.
- *
- * The global limiter is sized for normal app traffic and does nothing to slow
- * down password guessing. The per-account lockout in the service only stops an
- * attacker hammering a single account — it does not stop one trying the same
- * password against every mobile number in turn, which this does.
- */
+// Keyed on IP and account, so password spraying across many numbers is limited too.
 const LOGIN_RATE_LIMIT = {
   max: 10,
   timeWindow: "1 minute",
-  /** Keyed on IP plus the account being tried, so spraying is limited too. */
   keyGenerator: (request: FastifyRequest) => {
     const body = request.body as { mobileNumber?: unknown } | undefined;
     const mobileNumber = typeof body?.mobileNumber === "string" ? body.mobileNumber : "";
@@ -45,8 +37,7 @@ const REFRESH_RATE_LIMIT = {
 };
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
-  // Public: the login screen reads this before deciding whether to offer a
-  // guest button. Returns nothing sensitive.
+  // Public: the login screen reads this before offering a guest button.
   app.get("/config", authConfigHandler);
 
   app.post("/login", { config: { rateLimit: LOGIN_RATE_LIMIT } }, loginHandler);

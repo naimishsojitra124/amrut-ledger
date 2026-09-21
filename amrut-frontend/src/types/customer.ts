@@ -1,7 +1,5 @@
 export type CustomerStatus = "active" | "archived";
 export type PaymentMethod = "cash" | "upi";
-// Single source of truth lives in types/bill.ts; re-exported so existing
-// imports from this module keep working.
 import type { BillStatus } from "./bill";
 
 export type { BillStatus };
@@ -188,6 +186,8 @@ export type CustomerDailyHistoryItemResponse = {
   id: string;
   ledgerDate: string;
   entries: CustomerDailyHistoryEntry[];
+  // Confirmed as "bought nothing", which a day nobody has reached yet is not.
+  noPurchase: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -217,7 +217,6 @@ export interface CustomerBillItemResponse {
   status: BillStatus;
   generatedAt: string;
   generatedBy: string;
-  /** True for a balance brought over from the shop's paper records. */
   isOpeningBalance?: boolean;
 }
 export interface CustomerBillSummaryResponse {
@@ -336,12 +335,6 @@ export interface CustomerCardAssignmentSummaryResponse {
 export interface CustomerCardHistoryResponse {
   items: CustomerCardAssignmentResponse[];
 }
-/**
- * Money a customer already owed before the shop moved onto this system.
- *
- * It is stored as a bill, so it is payable, carried forward and counted like
- * any other receivable — it simply has no milk or item lines behind it.
- */
 export interface OpeningBalanceInput {
   amount: number;
   month: number;
@@ -372,7 +365,6 @@ export interface CreateCustomerRequest {
   otherMilkTypeIds?: string[];
   cardNumber: number;
   notes?: string;
-  /** Only used while migrating existing customers onto the system. */
   openingBalance?: OpeningBalanceInput;
 }
 export interface UpdateCustomerRequest {

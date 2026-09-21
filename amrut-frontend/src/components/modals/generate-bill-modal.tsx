@@ -80,7 +80,7 @@ export function GenerateBillModal() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 px-4 py-5 sm:grid-cols-2 sm:px-6">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overscroll-contain px-4 py-5 sm:grid-cols-2 sm:px-6">
           <label className="space-y-1.5 text-sm font-medium">
             <span>Month</span>
 
@@ -120,7 +120,7 @@ export function GenerateBillModal() {
           </label>
         </div>
 
-        <DialogFooter className="shrink-0 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
+        <DialogFooter className="mx-0 mb-0 shrink-0 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
           <Button
             type="button"
             variant="outline"

@@ -13,10 +13,6 @@ export interface AuthUser {
   email: string;
   role: UserRole;
   status: UserStatus;
-  /**
-   * Resolved from the role by `app/auth/permissions.ts`. The UI gates on these
-   * rather than on the role name, so access changes in one place.
-   */
   permissions: Permission[];
 }
 

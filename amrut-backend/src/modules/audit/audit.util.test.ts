@@ -25,7 +25,6 @@ describe("audit log formatting", () => {
       "2.5 L Buffalo 54 at Rs. 54/L = Rs. 135; 2 x Bread at Rs. 40 = Rs. 80 (total Rs. 215)",
     );
 
-    // The old implementation stored JSON, which leaked these.
     expect(entry).not.toMatch(/milkTypeId|productSuggestionId|[0-9a-f]{24}/);
   });
 

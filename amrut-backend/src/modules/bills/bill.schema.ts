@@ -25,7 +25,7 @@ export const billListQuerySchema = z.object({
   month: z.coerce.number().int().min(1).max(12).optional(),
   year: z.coerce.number().int().min(2000).max(2100).optional(),
   status: z.enum(["paid", "partial", "unpaid"]).optional(),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(80).optional(),
 });
 
 export const paymentListQuerySchema = z.object({
@@ -36,7 +36,7 @@ export const paymentListQuerySchema = z.object({
   billMonth: z.coerce.number().int().min(1).max(12).optional(),
   billYear: z.coerce.number().int().min(2000).max(2100).optional(),
   paymentMethod: z.enum(["cash", "upi"]).optional(),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).max(80).optional(),
 });
 
 export const generateBillSchema = z.object({

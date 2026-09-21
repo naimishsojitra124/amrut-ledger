@@ -45,12 +45,6 @@ type CardOption = {
   cardNumber: number;
 };
 
-/**
- * The period an opening balance is attributed to: the month that just ended.
- *
- * Dating it before the current month is what lets the first bill generated on
- * this system pick it up as a previous due.
- */
 function previousPeriodLabel(): string {
   const { month, year } = previousPeriod();
   return new Date(year, month - 1, 1).toLocaleDateString("en-IN", {
@@ -59,9 +53,10 @@ function previousPeriodLabel(): string {
   });
 }
 
+// An opening balance belongs to a finished month, so the first real bill carries it forward.
 function previousPeriod(): { month: number; year: number } {
   const now = new Date();
-  const month = now.getMonth(); // 0-indexed, so this is already "last month"
+  const month = now.getMonth();
   return month === 0
     ? { month: 12, year: now.getFullYear() - 1 }
     : { month, year: now.getFullYear() };
@@ -80,10 +75,6 @@ const customerFormSchema = z
       .finite("Enter a valid deposit amount")
       .min(0, "Deposit cannot be negative"),
 
-    /**
-     * Money this customer already owed before the shop moved onto this system.
-     * Only offered while creating, and only needed during the changeover.
-     */
     openingOutstanding: z
       .number()
       .finite("Enter a valid amount")
@@ -134,9 +125,7 @@ export default function CustomerFormModal() {
 
   const customerId = customerForm?.customerId ?? null;
 
-  // These modals stay mounted for the whole session. Fetching only while one
-  // is open keeps the login screen and every unrelated page from firing
-  // requests that are never used — and, when signed out, 401 toasts.
+  // Gated on isOpen: these modals stay mounted, and a closed one must not fetch.
   const { data: milkTypesData } = useActiveMilkTypesQuery({ enabled: isOpen });
 
   const customerQuery = useCustomerQuery(
@@ -194,7 +183,6 @@ export default function CustomerFormModal() {
     availableCards.length > 0 || (mode === "edit" && Boolean(currentCard));
 
   const defaultValues = useMemo<CustomerFormValues>(() => {
-    // EDIT MODE
     if (mode === "edit" && customer) {
       const milkTypeIds = customer.milkTypes.map(
         (milkType) => milkType.milkTypeId,
@@ -225,7 +213,6 @@ export default function CustomerFormModal() {
       };
     }
 
-    // CREATE MODE
     return {
       fullName: "",
       mobileNumber: "",
@@ -267,10 +254,6 @@ export default function CustomerFormModal() {
     name: "cardId",
   });
 
-  /**
-   * Reset form whenever the modal opens
-   * or customer data changes.
-   */
   useEffect(() => {
     if (!isOpen) {
       return;
@@ -279,10 +262,6 @@ export default function CustomerFormModal() {
     form.reset(defaultValues);
   }, [isOpen, defaultValues, form]);
 
-  /**
-   * Primary milk type must always
-   * be included in milkTypeIds.
-   */
   useEffect(() => {
     if (!isOpen || !primaryMilkId) {
       return;
@@ -305,27 +284,7 @@ export default function CustomerFormModal() {
   const isCardNumberingLoading = cardNumberingQuery.isLoading;
   const isCardDataLoading = isAvailableCardsLoading || isCardNumberingLoading;
 
-  /**
-   * Resolve the CARD NUMBER that
-   * should be submitted to the
-   * customer API.
-   *
-   * IMPORTANT:
-   *
-   * CreateCustomerRequest and
-   * UpdateCustomerRequest expect:
-   *
-   * cardNumber: number
-   *
-   * They do NOT expect cardId.
-   */
   function resolveCardNumber(values: CustomerFormValues): number {
-    /**
-     * Existing card selector.
-     *
-     * Convert selected card ID
-     * back into its card number.
-     */
     if (useCardSelect) {
       if (!values.cardId) {
         throw new Error("Select a card");
@@ -342,9 +301,6 @@ export default function CustomerFormModal() {
       return selectedCard.cardNumber;
     }
 
-    /**
-     * Manual card number.
-     */
     if (values.cardNumber == null || Number.isNaN(values.cardNumber)) {
       throw new Error("Enter a card number");
     }
@@ -352,22 +308,6 @@ export default function CustomerFormModal() {
     return Number(values.cardNumber);
   }
 
-  /**
-   * Convert the UI milk-type representation:
-   *
-   * milkTypeIds = [
-   *   primary,
-   *   other,
-   *   other
-   * ]
-   *
-   * into the API representation:
-   *
-   * {
-   *   primaryMilkTypeId: primary,
-   *   otherMilkTypeIds: [other, other]
-   * }
-   */
   function resolveMilkTypes(values: CustomerFormValues) {
     const otherMilkTypeIds = values.milkTypeIds.filter(
       (milkTypeId) => milkTypeId !== values.primaryMilkId,
@@ -389,7 +329,6 @@ export default function CustomerFormModal() {
 
       const milkTypePayload = resolveMilkTypes(values);
 
-      // CREATE CUSTOMER
       if (mode === "create") {
         const openingOutstanding = Math.round(values?.openingOutstanding ?? 0);
 
@@ -402,8 +341,6 @@ export default function CustomerFormModal() {
           otherMilkTypeIds: milkTypePayload.otherMilkTypeIds ?? [],
           cardNumber,
           notes: values?.notes ?? "",
-          // Attributed to the month before the changeover so the first bill
-          // generated on this system carries it forward.
           ...(openingOutstanding > 0
             ? {
                 openingBalance: {
@@ -419,9 +356,6 @@ export default function CustomerFormModal() {
         return;
       }
 
-      /**
-       * UPDATE CUSTOMER
-       */
       if (!customerId) {
         return;
       }
@@ -451,9 +385,6 @@ export default function CustomerFormModal() {
 
     const currentPrimary = form.getValues("primaryMilkId");
 
-    /**
-     * Add milk type.
-     */
     if (checked) {
       const next = current.includes(milkTypeId)
         ? current
@@ -464,10 +395,6 @@ export default function CustomerFormModal() {
         shouldValidate: true,
       });
 
-      /**
-       * First selected milk type
-       * automatically becomes primary.
-       */
       if (!currentPrimary) {
         form.setValue("primaryMilkId", milkTypeId, {
           shouldDirty: true,
@@ -478,15 +405,8 @@ export default function CustomerFormModal() {
       return;
     }
 
-    /**
-     * Remove milk type.
-     */
     const next = current.filter((id) => id !== milkTypeId);
 
-    /**
-     * At least one milk type
-     * must remain selected.
-     */
     if (next.length === 0) {
       form.setError("milkTypeIds", {
         type: "manual",
@@ -503,11 +423,6 @@ export default function CustomerFormModal() {
       shouldValidate: true,
     });
 
-    /**
-     * If the removed milk type
-     * was primary, promote the
-     * first remaining type.
-     */
     if (currentPrimary === milkTypeId) {
       form.setValue("primaryMilkId", next[0], {
         shouldDirty: true,
@@ -539,10 +454,12 @@ export default function CustomerFormModal() {
           </div>
         </DialogHeader>
 
-        <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
-          <div className="max-h-[70vh] p-3 overflow-auto space-y-2">
+        <form
+          className="flex min-h-0 flex-1 flex-col"
+          onSubmit={form.handleSubmit(onSubmit)}
+        >
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3">
             <div className="grid gap-4 md:grid-cols-2">
-              {/* Full Name */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium">Full Name</label>
 
@@ -558,7 +475,6 @@ export default function CustomerFormModal() {
                 )}
               </div>
 
-              {/* Mobile */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium">Mobile Number</label>
 
@@ -574,22 +490,6 @@ export default function CustomerFormModal() {
                   </p>
                 )}
               </div>
-
-              {/* Address */}
-              {/* <div className="flex flex-col gap-1.5 md:col-span-2">
-                <label className="text-sm font-medium">Address</label>
-
-                <Input
-                  {...form.register("address")}
-                  placeholder="Customer address"
-                />
-
-                {form.formState.errors.address && (
-                  <p className="text-xs text-red-600">
-                    {form.formState.errors.address.message}
-                  </p>
-                )}
-              </div> */}
 
               {mode === "create" && (
                 <div className="flex flex-col gap-1.5">
@@ -650,7 +550,6 @@ export default function CustomerFormModal() {
                 </div>
               )}
 
-              {/* Primary Milk */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium">Primary Milk Type</label>
 
@@ -693,7 +592,6 @@ export default function CustomerFormModal() {
               </div>
             </div>
 
-            {/* Notes */}
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium">Notes</label>
 
@@ -704,7 +602,6 @@ export default function CustomerFormModal() {
               />
             </div>
 
-            {/* Card Assignment */}
             <div className="space-y-3 rounded-xl border p-4">
               <div className="flex items-center gap-2">
                 <CreditCard className="h-4 w-4 text-[#266699]" />
@@ -831,7 +728,6 @@ export default function CustomerFormModal() {
               )}
             </div>
 
-            {/* Milk Types */}
             <div className="space-y-3">
               <div>
                 <label className="text-sm font-medium">Milk Types</label>
@@ -877,8 +773,7 @@ export default function CustomerFormModal() {
             </div>
           </div>
 
-          <DialogFooter className="flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
-            {/* Actions */}
+          <DialogFooter className="mx-0 mb-0 shrink-0 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
             <Button
               type="button"
               variant="outline"

@@ -1,22 +1,6 @@
 import type { UserRole } from "../../../generated/prisma/enums";
 
-/**
- * ────────────────────────────────────────────────────────────────────────────
- *  WHO CAN DO WHAT
- * ────────────────────────────────────────────────────────────────────────────
- *
- * This file is the single place access is decided. Change `ROLE_PERMISSIONS`
- * below and both the API and the UI follow — the frontend does not keep its own
- * copy, it receives the signed-in user's permissions from the server, so the
- * two can never drift apart.
- *
- * The API is what actually enforces this. The UI hides buttons a user cannot
- * use, but that is only courtesy: every route re-checks for itself.
- *
- * Shape of a permission name: `<area>.<action>`. Add a new one to `PERMISSIONS`
- * first, then grant it to the roles that should have it.
- */
-
+// The single place access is decided; the client is sent the resolved list, never this matrix.
 export const PERMISSIONS = {
   // ── Customers ────────────────────────────────────────────────────────────
   CUSTOMER_VIEW: "customer.view",
@@ -70,14 +54,7 @@ export const PERMISSIONS = {
   USER_UPDATE: "user.update",
   USER_CHANGE_ROLE: "user.changeRole",
   USER_ARCHIVE: "user.archive",
-  /**
-   * Set someone else's password without knowing the current one.
-   *
-   * Always paired with the seniority rule in `canActOnUser`: holding this
-   * permission never lets you reach an account at or above your own level.
-   * Without that pairing, a manager could set the owner's password and then
-   * sign in as them.
-   */
+  // Only ever safe alongside canActOnUser, which blocks resets on senior accounts.
   USER_RESET_PASSWORD: "user.resetPassword",
 
   // ── System ───────────────────────────────────────────────────────────────
@@ -87,11 +64,7 @@ export const PERMISSIONS = {
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
-/**
- * Employees run the counter: they serve customers, record what goes out and
- * take money for it. They do not change rates, close months, or undo anything
- * that has already been recorded as money received.
- */
+// Counter staff: record what goes out and take money, but never change rates or undo a payment.
 const EMPLOYEE_PERMISSIONS: Permission[] = [
   PERMISSIONS.CUSTOMER_VIEW,
   PERMISSIONS.CUSTOMER_CREATE,
@@ -115,13 +88,7 @@ const EMPLOYEE_PERMISSIONS: Permission[] = [
   PERMISSIONS.FUNCTION_ORDER_UPDATE,
 ];
 
-/**
- * Managers run the shop day to day: they correct mistakes, move deposits,
- * close months and look after the catalogue and the cards.
- *
- * They can reset an employee's password but — by the seniority rule — never an
- * owner's or another manager's.
- */
+// Day-to-day running: corrections, deposits, month end, catalogue and cards.
 const MANAGER_PERMISSIONS: Permission[] = [
   ...EMPLOYEE_PERMISSIONS,
 
@@ -147,7 +114,7 @@ const MANAGER_PERMISSIONS: Permission[] = [
   PERMISSIONS.USER_RESET_PASSWORD,
 ];
 
-/** The owner can do everything, including managing staff accounts. */
+// Everything a manager can do, plus staff administration and the scheduler.
 const OWNER_PERMISSIONS: Permission[] = [
   ...MANAGER_PERMISSIONS,
 
@@ -160,18 +127,7 @@ const OWNER_PERMISSIONS: Permission[] = [
   PERMISSIONS.SYSTEM_JOBS_MANAGE,
 ];
 
-/**
- * The public demo account gets everything an owner does, so a reviewer can
- * exercise the whole app rather than bumping into refusals.
- *
- * Two things make that safe, and neither lives in this list:
- *
- *   1. The demo runs on its own database, wiped and re-seeded on a schedule —
- *      see `modules/demo/demo-reset.service.ts`.
- *   2. The demo account itself is protected from being renamed, archived,
- *      demoted or locked out, so no visitor can close the door behind them —
- *      see `assertNotDemoAccount` in `middleware/authorize.ts`.
- */
+// Full access on purpose: the demo is kept safe by a throwaway database, not a shorter list.
 const GUEST_PERMISSIONS: Permission[] = [...OWNER_PERMISSIONS];
 
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
@@ -181,10 +137,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   owner: Object.freeze([...new Set(OWNER_PERMISSIONS)]),
 };
 
-/**
- * Seniority, used to stop anyone acting on an account at or above their own
- * level. Higher number wins.
- */
+// Seniority: nobody may administer an account at or above their own level.
 const ROLE_RANK: Record<UserRole, number> = {
   // Ranked alongside an owner so a reviewer can exercise staff management,
   // but never over the demo account itself — see `assertNotDemoAccount`.
@@ -202,20 +155,13 @@ export function roleHasPermission(role: UserRole, permission: Permission): boole
   return getPermissionsForRole(role).includes(permission);
 }
 
-/**
- * Whether `actorRole` may administer an account held by `targetRole`.
- *
- * Only the owner can act on another owner, and only on themselves — see
- * `isSelf` handling at the call site. Everyone else must be strictly senior to
- * the account they are touching, which is what prevents a manager from taking
- * over the owner's login by resetting its password.
- */
+// Stops a manager resetting the owner's password and signing in as them.
 export function canActOnUser(actorRole: UserRole, targetRole: UserRole): boolean {
   if (actorRole === "owner" || actorRole === "guest") return true;
   return ROLE_RANK[actorRole] > ROLE_RANK[targetRole];
 }
 
-/** Staff roles, i.e. everything a real person can be assigned. */
+// guest is excluded: it belongs to the shared demo account and the API refuses to assign it.
 export const ASSIGNABLE_ROLES = ["owner", "manager", "employee"] as const;
 
 export function isGuestRole(role: UserRole): boolean {

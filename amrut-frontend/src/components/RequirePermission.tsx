@@ -4,16 +4,7 @@ import { ShieldAlert } from "lucide-react";
 import { usePermissions } from "@/hooks/use-permissions";
 import type { Permission } from "@/config/permissions";
 
-/**
- * Route guard for pages that need a specific permission.
- *
- * The sidebar already hides links a user cannot follow; this catches the URL
- * being typed, bookmarked or shared. It explains the refusal rather than
- * bouncing silently, so nobody is left wondering whether the app is broken.
- *
- * This is not the security boundary — the API rejects the underlying requests
- * regardless of what the UI renders.
- */
+// Catches a typed or shared URL and explains the refusal instead of bouncing silently.
 export default function RequirePermission({
   permission,
   redirectTo,

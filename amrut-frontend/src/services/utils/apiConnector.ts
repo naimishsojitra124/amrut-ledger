@@ -7,6 +7,20 @@ import type {
   Method,
 } from "axios";
 
+import {
+  CLIENT_ID_HEADER,
+  describeResponseMeta,
+  readResponseMeta,
+  REQUEST_ID_HEADER,
+  type ResponseMeta,
+} from "./response-meta";
+
+declare module "axios" {
+  interface AxiosResponse {
+    meta?: ResponseMeta;
+  }
+}
+
 const baseURL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000";
 const TOKEN_KEY = "authToken";
 const DEVICE_KEY = "amrut:device-id";
@@ -17,9 +31,18 @@ const API_TIMING_ENABLED =
 
 const requestStartTimes = new WeakMap<object, number>();
 
+// New for every tab rather than every browser, so two tabs on one counter still hear
+// about each other's writes over the realtime channel.
+const CLIENT_ID = crypto.randomUUID();
+
+export function getClientId(): string {
+  return CLIENT_ID;
+}
+
 function logRequestTiming(
   config: { method?: string; url?: string },
   status?: number,
+  meta?: ResponseMeta,
 ) {
   if (!API_TIMING_ENABLED) {
     return;
@@ -34,9 +57,22 @@ function logRequestTiming(
   const method = (config.method ?? "GET").toUpperCase();
   const url = (config.url ?? "").split("?")[0];
   const statusLabel = status === undefined ? "ERR" : String(status);
+  const timing = meta ? describeResponseMeta(meta) : `${durationMs}ms`;
+  const trace = meta?.requestId ? ` id=${meta.requestId}` : "";
 
-  console.info(`[API] ${method} ${url} ${statusLabel} ${durationMs}ms`);
+  console.info(`[API] ${method} ${url} ${statusLabel} ${timing}${trace}`);
   requestStartTimes.delete(config);
+}
+
+// Split out so a caller can report the exact request the server logged it under.
+function attachResponseMeta(response: AxiosResponse): ResponseMeta | undefined {
+  const startedAt = requestStartTimes.get(response.config);
+  if (startedAt === undefined) return undefined;
+
+  const meta = readResponseMeta(response.headers, performance.now() - startedAt);
+  response.meta = meta;
+
+  return meta;
 }
 
 export function getDeviceId(): string {
@@ -47,6 +83,7 @@ export function getDeviceId(): string {
   return deviceId;
 }
 
+// Held in memory, not localStorage, so an XSS bug cannot read the access token.
 export const tokenStorage = {
   get(): string | null {
     return accessToken;
@@ -56,7 +93,6 @@ export const tokenStorage = {
   },
   clear(): void {
     accessToken = null;
-    // Remove tokens persisted by older releases.
     localStorage.removeItem(TOKEN_KEY);
   },
   /** Lightweight expiry check — avoids a round-trip for obviously stale JWTs */
@@ -68,20 +104,12 @@ export const tokenStorage = {
       // exp is in seconds; give a 30-second buffer
       return payload.exp != null && payload.exp * 1000 < Date.now() + 30_000;
     } catch {
-      return false; // non-JWT or opaque token — let the server decide
+      return false;
     }
   },
 };
 
-// ─── Error messages ───────────────────────────────────────────────────────────
-
-/**
- * One place that turns any failure into a sentence worth showing a user.
- *
- * Every layer above (React Query, mutation handlers, the offline queues) reads
- * messages through this, so an error can never reach the screen as "[object
- * Object]", as an empty string, or as nothing at all.
- */
+// The one place a failure becomes a sentence, so nothing reaches the user as [object Object].
 export function getApiErrorMessage(
   error: unknown,
   fallback = "Something went wrong. Please try again.",
@@ -144,6 +172,9 @@ axiosInstance.interceptors.request.use(
   (config) => {
     requestStartTimes.set(config, performance.now());
     config.headers.set("X-Device-Id", getDeviceId());
+    config.headers.set(CLIENT_ID_HEADER, CLIENT_ID);
+    // Minted here so a request that times out still has an id to search the logs for.
+    config.headers.set(REQUEST_ID_HEADER, crypto.randomUUID());
     const token = tokenStorage.get();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -153,18 +184,6 @@ axiosInstance.interceptors.request.use(
   (error) => Promise.reject(error),
 );
 
-// ─── Silent refresh ───────────────────────────────────────────────────────────
-
-/**
- * Access tokens live for 15 minutes. Without this, the first request made
- * after that mark returned 401 and logged the user out mid-task — several
- * times a shift.
- *
- * On a 401 we exchange the refresh cookie for a new access token once, then
- * replay the request. Concurrent 401s share the single in-flight refresh
- * instead of each firing their own, and each request is retried at most once
- * so a genuinely dead session still ends in a clean logout.
- */
 type RetriableConfig = InternalAxiosRequestConfig & { _retriedAfterRefresh?: boolean };
 
 let refreshPromise: Promise<string> | null = null;
@@ -202,7 +221,7 @@ async function refreshAccessToken(): Promise<string> {
   return nextToken;
 }
 
-/** Shared so that ten simultaneous 401s trigger exactly one refresh. */
+// Single-flight: concurrent 401s share one refresh instead of each firing their own.
 export function refreshSession(): Promise<string> {
   refreshPromise ??= refreshAccessToken().finally(() => {
     refreshPromise = null;
@@ -214,7 +233,7 @@ export function refreshSession(): Promise<string> {
 // Response interceptor — refresh once on 401, then log out
 axiosInstance.interceptors.response.use(
   (response) => {
-    logRequestTiming(response.config, response.status);
+    logRequestTiming(response.config, response.status, attachResponseMeta(response));
     return response;
   },
   async (error: AxiosError) => {
@@ -235,6 +254,7 @@ axiosInstance.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Retried at most once, so a genuinely dead session still ends in a clean logout.
     config._retriedAfterRefresh = true;
 
     try {

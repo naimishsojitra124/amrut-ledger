@@ -478,11 +478,6 @@ function useDepositMutation(path: "top-up" | "refund") {
 export const useTopUpDepositMutation = () => useDepositMutation("top-up");
 export const useRefundDepositMutation = () => useDepositMutation("refund");
 
-/**
- * The balance a customer was already carrying when the shop moved onto this
- * system. It is held as a bill, so once set it behaves like any other
- * receivable — payable, carried forward and counted in every outstanding total.
- */
 export const useOpeningBalanceQuery = (customerId: string | null) =>
   useQuery<OpeningBalance | null>({
     queryKey: customerQueryKeys.openingBalance(customerId),

@@ -78,15 +78,9 @@ export interface CreateCustomerRequest {
   otherMilkTypeIds?: string[] | undefined;
   cardNumber?: number;
   notes?: string | undefined;
-  /** Balance already owed from before this system was in use. */
   openingBalance?: OpeningBalanceInput | undefined;
 }
 
-/**
- * The balance a customer was already carrying before the shop moved onto this
- * system. Stored as a bill so that payments, carry-forward and every
- * outstanding total treat it like any other receivable.
- */
 export interface OpeningBalanceInput {
   amount: number;
   month: number;
@@ -110,7 +104,6 @@ export interface OpeningBalanceResponse {
 
 export interface UpdateCustomerRequest {
   fullName?: string | undefined;
-  /** Omitted leaves the number unchanged; an empty string clears it. */
   mobileNumber?: string | undefined;
   address?: string | undefined;
   depositAmount?: number | undefined;
@@ -135,6 +128,7 @@ export interface CustomerDailyHistoryItemResponse {
   id: string;
   ledgerDate: string;
   entries: unknown[];
+  noPurchase: boolean;
   createdAt: string;
   updatedAt: string;
 }

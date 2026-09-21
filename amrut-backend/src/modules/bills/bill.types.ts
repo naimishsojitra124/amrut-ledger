@@ -50,11 +50,6 @@ export interface BillPaymentSummaryResponse {
   totalAmount: number;
 }
 
-/**
- * Set when this bill's unpaid balance was rolled into a later bill. The amount
- * has already been removed from `outstandingAmount`, so it is never counted
- * twice across a customer's bills.
- */
 export interface BillCarriedForwardInfo {
   amount: number;
   toBillId: string;
@@ -79,12 +74,10 @@ export interface BillListItemResponse {
   status: BillStatus;
   billVersion: number;
   generatedAt: string;
+  // Set when this balance moved onto a later bill; it has already left outstandingAmount.
   carriedForward: BillCarriedForwardInfo | null;
 
-  /**
-   * True for a balance brought over from the shop's paper records. It behaves
-   * like any other bill, but has no milk or item lines behind it.
-   */
+  // A balance brought over from paper: payable like any bill, but with no lines behind it.
   isOpeningBalance: boolean;
 }
 
@@ -187,7 +180,6 @@ export interface PaymentListResponse {
   pageInfo: PageInfo;
 }
 
-/** All figures here exclude reversed receipts. */
 export interface PaymentSummaryResponse {
   totalPayments: number;
   totalAmount: number;

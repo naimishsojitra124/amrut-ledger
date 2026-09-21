@@ -300,7 +300,7 @@ export default function ProductSuggestionTab() {
       toast.success("Product suggestion updated");
       setSelectedProductId(updated.id);
     } catch {
-      // Already surfaced by the global error handler.
+      // Already reported by the global error handler.
     }
   }
 
@@ -340,7 +340,7 @@ export default function ProductSuggestionTab() {
       });
       toast.success("Product order updated");
     } catch {
-      // Already surfaced by the global error handler.
+      // Already reported by the global error handler.
     }
   }
 

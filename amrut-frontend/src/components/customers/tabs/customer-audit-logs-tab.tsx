@@ -170,10 +170,6 @@ const ACTION_META: Record<AuditLogType, ActionMeta> = {
   },
 };
 
-/**
- * Falls back gracefully when the API introduces an audit type this build does
- * not know about yet, rather than crashing the whole history tab.
- */
 function getActionMeta(type: AuditLogType): ActionMeta {
   return (
     ACTION_META[type] ?? {

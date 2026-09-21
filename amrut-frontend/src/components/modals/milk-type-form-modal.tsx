@@ -26,9 +26,6 @@ export function MilkTypeFormModal() {
   const id = settingsForm?.id ?? null;
   const isOpen = activeModal === "milkTypeForm";
 
-  // Only load when this modal is the one on screen. `settingsForm.id` is
-  // shared by every settings modal, so an id belonging to another entity would
-  // otherwise be fetched as a milk type.
   const item = useMilkTypeQuery(isOpen ? (id ?? undefined) : undefined).data;
 
   const create = useCreateMilkTypeMutation();
@@ -99,7 +96,7 @@ export function MilkTypeFormModal() {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-4 px-2 py-5 sm:px-6">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overscroll-contain px-2 py-5 sm:px-6">
           <div className="flex flex-col gap-1.5">
             <label htmlFor="milk-type-name" className="text-sm font-medium">
               Milk Type Name
@@ -155,7 +152,7 @@ export function MilkTypeFormModal() {
           </div>
         </div>
 
-        <DialogFooter className="flex flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
+        <DialogFooter className="mx-0 mb-0 flex shrink-0 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
           <Button
             type="button"
             variant="outline"

@@ -18,10 +18,6 @@ export type SidebarItem = {
   path: string;
   icon: LucideIcon;
   isVisible?: boolean;
-  /**
-   * Hidden unless the user holds this. `null` means everyone signed in — the
-   * dashboard and settings both show only what the viewer can already reach.
-   */
   permission: Permission | null;
 };
 

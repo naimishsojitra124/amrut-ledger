@@ -18,13 +18,7 @@ import {
 export const userRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", authenticate);
 
-  /**
-   * Changing your own password needs no permission — every signed-in user must
-   * be able to rotate their own credentials — but it does require the current
-   * one, so a borrowed session cannot lock the real owner out.
-   *
-   * Declared before "/:id/password" so it is not swallowed by that route.
-   */
+  // Declared before "/:id/password" so that route does not swallow it.
   app.patch("/me/password", changeOwnPasswordHandler);
 
   const canView = requirePermission(PERMISSIONS.USER_VIEW);
@@ -44,12 +38,6 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     updateUserHandler,
   );
 
-  /**
-   * Resetting someone else's password. The permission alone is not enough —
-   * the handler also applies the seniority rule, so a manager can reset an
-   * employee but never an owner or another manager. Without that, anyone who
-   * could reset a password could simply take over the owner's account.
-   */
   app.patch(
     "/:id/password",
     { preHandler: requirePermission(PERMISSIONS.USER_RESET_PASSWORD) },

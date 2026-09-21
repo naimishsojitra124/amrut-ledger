@@ -6,12 +6,7 @@ import {
   getOpeningBalanceBillNumber,
 } from "./customer.service";
 
-/**
- * An opening balance is the money a customer already owed when the shop moved
- * off paper. It is stored as an ordinary bill so that payments, carry-forward
- * and every outstanding total handle it with no special cases — these tests pin
- * down the shape that makes that work.
- */
+// Stored as an ordinary bill, so every outstanding total handles it with no special case.
 describe("opening balance", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -40,9 +35,6 @@ describe("opening balance", () => {
   });
 
   it("records the amount as a previous due, not as current charges", () => {
-    // Nothing was sold on this bill, so counting it as this period's revenue
-    // would overstate sales. `getBillsSummary` subtracts previousDue for
-    // exactly this reason.
     const bill = build(4500);
 
     expect(bill.previousDue).toBe(4500);

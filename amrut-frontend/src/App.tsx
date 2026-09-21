@@ -14,6 +14,7 @@ import { PERMISSIONS } from "@/config/permissions";
 import AuthBootstrap from "./components/AuthBootstrap";
 import { SuspenseLoader } from "./components/common/suspense-loader";
 import { OfflineSyncManager } from "./components/offline-sync-manager";
+import { RealtimeSync } from "./components/realtime-sync";
 import { useAuthStore } from "@/store/auth.store";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -25,6 +26,7 @@ const Login = lazy(() => import("@/pages/login"));
 const FunctionOrders = lazy(() => import("@/pages/function-orders"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
+// The catch-all sits outside the auth gate, so signed-out visitors get the 404 and not a redirect.
 export const router = createBrowserRouter([
   {
     path: "/",
@@ -50,9 +52,6 @@ export const router = createBrowserRouter([
                 path: "dashboard",
                 element: <Dashboard />,
               },
-              // Each page declares the permission it needs. The sidebar hides
-              // links a user cannot follow; this stops the URL being reached
-              // directly. The API enforces the same rules independently.
               {
                 element: (
                   <RequirePermission permission={PERMISSIONS.CUSTOMER_VIEW} />
@@ -68,7 +67,9 @@ export const router = createBrowserRouter([
                 children: [{ path: "quick-entry", element: <QuickEntry /> }],
               },
               {
-                element: <RequirePermission permission={PERMISSIONS.BILL_VIEW} />,
+                element: (
+                  <RequirePermission permission={PERMISSIONS.BILL_VIEW} />
+                ),
                 children: [{ path: "bills", element: <Bills /> }],
               },
               {
@@ -85,14 +86,11 @@ export const router = createBrowserRouter([
                 path: "settings",
                 element: <Settings />,
               },
-
             ],
           },
         ],
       },
 
-      // Reached when nobody is signed in: no shell to keep them in, so the
-      // page stands alone and points at the login screen.
       {
         path: "*",
         element: <NotFound />,
@@ -127,6 +125,8 @@ function App() {
       ) : (
         <>
           <OfflineSyncManager />
+
+          <RealtimeSync />
 
           <SuspenseLoader>
             <RouterProvider router={router} />

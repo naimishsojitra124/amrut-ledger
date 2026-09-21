@@ -9,6 +9,7 @@ import type {
 } from "./function-order.types";
 
 import { buildPageInfo } from "../customer/customer.service";
+import { searchTerm } from "@/app/db/search";
 
 const getPrisma = (app: FastifyInstance) =>
   (
@@ -410,6 +411,8 @@ export async function listFunctionOrders(
   const page = query.page ?? 1;
   const limit = query.limit ?? 10;
 
+  const search = searchTerm(query.search);
+
   const where = {
     ...(query.status
       ? {
@@ -417,23 +420,23 @@ export async function listFunctionOrders(
         }
       : {}),
 
-    ...(query.search
+    ...(search
       ? {
           OR: [
             {
               customerName: {
-                contains: query.search,
+                contains: search,
                 mode: "insensitive" as const,
               },
             },
             {
               mobileNumber: {
-                contains: query.search,
+                contains: search,
               },
             },
             {
               orderNumber: {
-                contains: query.search,
+                contains: search,
                 mode: "insensitive" as const,
               },
             },
@@ -563,11 +566,6 @@ export async function getFunctionOrderReminders(app: FastifyInstance, daysAhead 
 
   end.setUTCDate(end.getUTCDate() + daysAhead);
 
-  /**
-   * Narrow to orders that actually have a delivery in the window before
-   * loading them. Previously every open order was fetched and filtered in
-   * memory on each dashboard load.
-   */
   const orders = await getPrisma(app).functionOrder.findMany({
     where: {
       status: {

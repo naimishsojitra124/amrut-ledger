@@ -3,14 +3,7 @@ import { Eye, LogOut } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 
-/**
- * Shown while signed in as a guest.
- *
- * Two things need saying out loud: the data is invented, and anything the
- * visitor does is temporary. Without the first they might take it for someone's
- * real books; without the second they may hesitate to try things, which is the
- * whole point of the demo.
- */
+// Says the data is invented and the changes are temporary, so visitors try things freely.
 export default function DemoBanner() {
   const { isGuest, logout, isLoggingOut } = useAuth();
 

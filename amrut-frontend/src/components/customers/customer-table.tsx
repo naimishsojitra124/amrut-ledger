@@ -88,7 +88,6 @@ const EMPTY_CUSTOMERS: CustomerRow[] = [];
 const MOBILE_HIDDEN_COLUMNS = new Set([
   "mobileNumber",
   "primaryMilk",
-  "lastEntryAt",
 ]);
 
 function getInitials(fullName: string) {

@@ -31,7 +31,7 @@ export default function NewFunctionOrderForm() {
 
       toast.success("Function order created");
     } catch {
-      // Already surfaced by the global error handler.
+      // Already reported by the global error handler.
     }
   }, [create, draft]);
 

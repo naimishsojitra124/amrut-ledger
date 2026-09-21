@@ -15,7 +15,6 @@ export function AppProvider({ children }: AppProviderProps) {
     <ErrorBoundary FallbackComponent={ErrorFallback}>
       <ThemeProvider>
         <QueryProvider>
-          {/* <AuthBootstrap>{children}</AuthBootstrap> */}
           {children}
 
           <ToasterProvider />

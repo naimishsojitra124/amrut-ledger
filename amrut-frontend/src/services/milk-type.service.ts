@@ -102,8 +102,6 @@ export const milkTypeAPI = {
         "/milk-types",
         undefined,
         undefined,
-        // apiConnector expects Record<string, unknown> | undefined
-        // assert query to that type
         query as unknown as Record<string, unknown> | undefined,
       );
 

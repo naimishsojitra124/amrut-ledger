@@ -19,10 +19,6 @@ async function getServiceHealth(signal?: AbortSignal) {
   return response.data;
 }
 
-/**
- * Intentionally short polling because this is a tiny heartbeat endpoint.
- * It is the only query continuously polling at a sub-minute cadence.
- */
 export function useServiceHealthQuery() {
   return useQuery({
     queryKey: healthQueryKeys.status(),

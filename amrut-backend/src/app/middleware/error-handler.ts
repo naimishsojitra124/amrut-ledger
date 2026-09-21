@@ -1,16 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ZodError } from "zod";
 
-/**
- * Every failure leaves here with a `message` the UI can show verbatim.
- *
- * The frontend surfaces `message` in a toast, so an unmapped error used to
- * reach the user as a bare "Internal Server Error" (or as nothing at all).
- * Anything we can explain — validation, duplicates, bad ids, rate limits — is
- * translated here; genuinely unexpected errors are logged in full and reported
- * generically so we never leak internals.
- */
-
 interface PrismaLikeError {
   code?: string;
   meta?: { target?: unknown; cause?: unknown; modelName?: unknown };
@@ -40,7 +30,7 @@ function fieldLabel(target: unknown): string | null {
   return fields.map((field) => readable[field] ?? field).join(" and ");
 }
 
-/** Maps Prisma's error codes onto messages and status codes a user can act on. */
+// Turns database codes into something the UI can show; anything unmapped stays generic.
 function mapPrismaError(error: PrismaLikeError): { statusCode: number; message: string } | null {
   switch (error.code) {
     case "P2002": {
@@ -89,6 +79,7 @@ function formatZodError(error: ZodError): string {
   return path ? `${path}: ${first.message}` : first.message;
 }
 
+// Every failure leaves here with a message the frontend can put straight into a toast.
 export function setGlobalErrorHandler(app: FastifyInstance) {
   app.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) =>
     reply.status(404).send({

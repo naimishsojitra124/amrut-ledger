@@ -2,31 +2,8 @@ import "dotenv/config";
 import { MongoClient } from "mongodb";
 import type { Db, Document } from "mongodb";
 
-/**
- * One-off migration for the "money is whole rupees" change.
- *
- * Prisma reads `Int` fields strictly: a document holding `142.5` where the
- * schema says `Int` makes the query fail, so this must run once against each
- * environment before the new backend is started.
- *
- * It does three things:
- *
- *   1. Rounds every monetary field to a whole rupee, including the ones nested
- *      inside embedded arrays (ledger entries, bill summaries).
- *   2. Drops the unique index on `customers.mobileNumber`. Numbers are now
- *      optional and may legitimately repeat across a household, and the unique
- *      index also meant only one customer could exist without a number at all.
- *   3. Backfills the carry-forward and opening-balance fields on `bills`.
- *
- * It is idempotent — running it twice is harmless.
- *
- *   npm run prisma:migrate-money
- *   npm run prisma:migrate-money -- --dry-run
- */
-
 const DRY_RUN = process.argv.includes("--dry-run");
 
-/** `$round` to 0 places, tolerating nulls and missing fields. */
 function roundField(path: string) {
   return {
     $cond: [
@@ -57,10 +34,6 @@ async function roundSimple(db: Db, collection: string, fields: string[]) {
   console.log(`  ${collection}: ${result.modifiedCount} document(s) updated`);
 }
 
-/**
- * Rounds numeric fields inside an embedded array, preserving every other
- * property on each element.
- */
 async function roundEmbedded(
   db: Db,
   collection: string,
@@ -146,11 +119,6 @@ async function dropMobileNumberUniqueIndex(db: Db) {
   console.log(`  customers.mobileNumber: dropped unique index ${target.name}`);
 }
 
-/**
- * A blank mobile number is the same as no mobile number. Storing "" made two
- * such customers collide under the old unique index; normalising to null keeps
- * search, display and reporting consistent.
- */
 async function normalizeBlankMobileNumbers(db: Db) {
   if (DRY_RUN) {
     const count = await db.collection("customers").countDocuments({ mobileNumber: "" });
@@ -185,8 +153,6 @@ async function backfillBillFields(db: Db) {
 
   console.log(`  bills: ${carry.modifiedCount} carry-forward field(s) backfilled`);
 
-  // Every bill that already exists was generated from recorded ledger entries,
-  // so none of them are opening balances.
   const opening = await db
     .collection("bills")
     .updateMany(missingOpeningFlag, { $set: { isOpeningBalance: false } });
@@ -194,6 +160,7 @@ async function backfillBillFields(db: Db) {
   console.log(`  bills: ${opening.modifiedCount} isOpeningBalance flag(s) backfilled`);
 }
 
+// Run once per environment before the new backend starts: Prisma rejects 142.5 in an Int field.
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
 
@@ -228,7 +195,6 @@ async function main() {
     ]);
 
     console.log("\nRounding embedded arrays:");
-    // `litres` and function-order quantities stay fractional on purpose.
     await roundEmbedded(db, "bills", "milkSummary", ["rate", "amount"]);
     await roundEmbedded(db, "bills", "otherItems", ["unitPrice", "amount"]);
     await roundEmbedded(db, "daily_ledgers", "entries", ["totalAmount"], [

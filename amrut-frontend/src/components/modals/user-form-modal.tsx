@@ -61,15 +61,10 @@ const ROLE_META: Record<
   },
 };
 
-/**
- * Roles a real account can be given.
- *
- * `guest` is deliberately absent: it belongs to the public demo account, and
- * the API refuses to assign it. Offering it here would only produce a 403.
- */
+// guest is missing on purpose: the API refuses to assign it.
 const ASSIGNABLE_ROLES = ["owner", "manager", "employee"] as const;
 
-/** Tolerates a role this build does not know about rather than crashing. */
+// Falls back rather than crashing when the API returns a role this build does not know.
 function roleMeta(role: UserRole) {
   return (
     ROLE_META[role] ?? {
@@ -80,8 +75,6 @@ function roleMeta(role: UserRole) {
 }
 
 export default function UserFormModal() {
-  // Gate on the permission, not on being literally the owner: the demo
-  // account holds these rights too, and the matrix is the source of truth.
   const { can } = usePermissions();
   const canChangeRole = can(PERMISSIONS.USER_CHANGE_ROLE);
 
@@ -97,11 +90,6 @@ export default function UserFormModal() {
     enabled: isOpen && Boolean(id),
   });
 
-  /**
-   * The shared demo account cannot be changed — the API refuses, because
-   * renaming or archiving it would lock out the next visitor. Saying so here
-   * is better than letting someone fill the form and hit a 403.
-   */
   const isDemoAccount = userQuery.data?.role === "guest";
 
   const createUserMutation = useCreateUserMutation();
@@ -123,13 +111,6 @@ export default function UserFormModal() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRole>("owner");
 
-  /**
-   * The roles offered in the picker.
-   *
-   * Normally just the assignable ones. If the account being viewed holds a
-   * role that cannot be assigned — the demo account does — it is added so the
-   * select shows what the account actually is instead of sitting blank.
-   */
   const roleOptions: UserRole[] = ASSIGNABLE_ROLES.some(
     (assignable) => assignable === role,
   )
@@ -316,7 +297,7 @@ export default function UserFormModal() {
       toast.success("User updated");
       closeModal();
     } catch {
-      // Already surfaced by the global error handler.
+      // Already reported by the global error handler.
     }
   }
 
@@ -569,7 +550,7 @@ export default function UserFormModal() {
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
+        <DialogFooter className="mx-0 mb-0 shrink-0 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
           <Button
             type="button"
             variant="outline"

@@ -4,13 +4,15 @@ import { registerAppPlugins } from "./app/plugins/register-plugins.js";
 import { setGlobalErrorHandler } from "./app/middleware/error-handler.js";
 import { registerRoutes } from "./routes/index.js";
 import { env } from "./config/env.js";
+import { resolveRequestId } from "./app/observability/request-meta.plugin.js";
 
 export async function buildApp() {
   const app = Fastify({
     bodyLimit: 1_048_576,
-    // Deployed behind a proxy. Without this every request reports the load
-    // balancer's address, which makes per-client rate limiting meaningless and
-    // request logs useless for tracing a device.
+    // Adopts the caller's X-Request-Id when it sent one, so a reported problem can be
+    // traced from the browser console straight to the log line that served it.
+    genReqId: resolveRequestId,
+    // Without this every request behind Render or Vercel shares the proxy's IP.
     trustProxy: true,
     logger: {
       level: env.logLevel,
@@ -62,8 +64,6 @@ export async function buildApp() {
   });
   app.addHook("onResponse", async (request, reply) => {
     const deviceId = request.headers["x-device-id"];
-    // Debug, not info: this fires on every single request, and at info level it
-    // doubled the log volume the server had to write while serving traffic.
     if (deviceId)
       request.log.debug(
         {

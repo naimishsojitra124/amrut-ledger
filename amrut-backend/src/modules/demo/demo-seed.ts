@@ -4,54 +4,16 @@ import { nanoid } from "nanoid";
 
 import type { PrismaClient } from "../../../generated/prisma/client";
 
-/**
- * The demo dataset: a dairy with about three months of trading behind it.
- *
- * One definition, two callers — `npm run seed` for a local database, and the
- * scheduled reset that keeps the public demo from drifting. Keeping them on the
- * same data means the demo always looks like what a developer sees locally.
- *
- * Two things this has to get right, both learned the hard way:
- *
- *   1. **Every collection is dropped, including the ones added later.** Prisma
- *      refuses to delete a row another model still points at, so a collection
- *      missing from the wipe does not merely survive — it aborts the whole
- *      seed. Anything added to the schema must be added to `wipe()` too.
- *
- *   2. **Dates are relative to today, never hard-coded.** The demo is rebuilt
- *      every few hours and is expected to look like a shop that is open for
- *      business. A dataset pinned to a fixed month goes quiet the moment the
- *      calendar moves past it: today's ledger is empty, the current bills page
- *      is empty, and a reviewer concludes the app is broken.
- *
- * Only ever safe against a database that exists to be thrown away.
- */
-
 const SALT_ROUNDS = 12;
 const BUSINESS_TIME_ZONE = "Asia/Kolkata";
 
-/**
- * The shared account the demo publishes on its login screen.
- *
- * Its credentials are printed for everyone to use, so they have to survive
- * every rebuild unchanged.
- */
+// Published on the login screen, so it must survive every rebuild unchanged.
 export const DEMO_ACCOUNT = {
   fullName: "Guest Reviewer",
   mobileNumber: "0000000000",
   email: "guest@demo.local",
 } as const;
 
-/**
- * When the demo data was last rebuilt.
- *
- * Kept in its own collection rather than derived from the data, because the
- * demo host sleeps when idle: a plain interval timer simply stops, whereas a
- * stored timestamp still reads as stale on the first request after it wakes.
- *
- * The collection is deliberately outside the Prisma schema — it describes the
- * demo, not the shop — so it is read and written with raw commands.
- */
 const STATE_COLLECTION = "demo_state";
 const STATE_ID = "demo";
 
@@ -71,13 +33,7 @@ export async function readLastDemoReset(prisma: PrismaClient): Promise<Date | nu
   return Number.isNaN(value.getTime()) ? null : value;
 }
 
-/**
- * Records that the demo has just been rebuilt.
- *
- * Called by the CLI seed as well as the scheduler: without it, seeding a demo
- * database by hand leaves an old timestamp behind, and the running server
- * wipes the freshly seeded data at its next check.
- */
+// The CLI seed records this too, or a running server wipes what was just seeded.
 export async function markDemoReset(prisma: PrismaClient, at = new Date()): Promise<void> {
   await prisma.$runCommandRaw({
     update: STATE_COLLECTION,
@@ -91,13 +47,7 @@ export async function markDemoReset(prisma: PrismaClient, at = new Date()): Prom
   });
 }
 
-/**
- * Creates the guest account.
- *
- * Separate from `seedDatabase` because the two have different lifetimes: the
- * dataset is thrown away and rebuilt, while the account has to exist whenever
- * the demo is running, including on a database that was seeded by hand.
- */
+// Kept out of the dataset: the account must exist even on a database seeded by hand.
 export async function createDemoAccount(
   prisma: PrismaClient,
   password: string,
@@ -115,14 +65,11 @@ export async function createDemoAccount(
   });
 }
 
-/** Rows per `createMany`. Keeps individual round trips small on a slow link. */
 const CHUNK_SIZE = 200;
 
 export interface SeedOptions {
   prisma: PrismaClient;
-  /** Shared by every seeded account. */
   password: string;
-  /** Defaults to silence; the CLI passes `console.log`. */
   log?: (message: string) => void;
 }
 
@@ -142,17 +89,10 @@ export interface SeedSummary {
   auditLogs: number;
 }
 
-// ── Identifiers ────────────────────────────────────────────────────────────
-//
-// Ids are generated up front rather than read back from each insert, so whole
-// collections can go in with one `createMany` instead of a round trip per row.
-// On the demo host a round trip costs roughly half a second, and the old
-// row-at-a-time seed needed several hundred of them.
-
 const OBJECT_ID_MACHINE = randomBytes(5).toString("hex");
 let objectIdCounter = Math.floor(Math.random() * 0xff_ff_ff);
 
-/** A syntactically valid MongoDB ObjectId: 4-byte time, 5 random, 3 counter. */
+// Ids are generated up front so whole collections insert with one createMany.
 function objectId(): string {
   objectIdCounter = (objectIdCounter + 1) % 0x100_00_00;
 
@@ -165,14 +105,7 @@ function objectId(): string {
   );
 }
 
-// ── Randomness ─────────────────────────────────────────────────────────────
-
-/**
- * Seeded generator, so a rebuild produces the same shop with new dates.
- *
- * Reproducibility matters here: when someone says "the demo shows a negative
- * balance on card 12", card 12 should still look the same after a reset.
- */
+// Seeded, so every rebuild produces the same shop with new dates.
 function makeRandom(seed: number): () => number {
   let state = seed >>> 0;
 
@@ -185,16 +118,9 @@ function makeRandom(seed: number): () => number {
   };
 }
 
-// ── Dates ──────────────────────────────────────────────────────────────────
-//
-// The app stores a business date as UTC midnight of the Asia/Kolkata calendar
-// day (see `dateStringToBusinessDate`). Seeded dates have to be built the same
-// way, or they land on the previous day and fall outside the month their bill
-// is generated for.
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The IST calendar day containing `instant`, as UTC midnight. */
+// Dates must be built the way the app stores them, or they land on the previous day.
 function businessDay(instant: Date): Date {
   const iso = new Intl.DateTimeFormat("en-CA", {
     timeZone: BUSINESS_TIME_ZONE,
@@ -211,7 +137,6 @@ function startOfMonth(day: Date, monthsFromNow = 0): Date {
   return new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + monthsFromNow, 1));
 }
 
-/** Last day of the month, matching how the app writes `billDate`. */
 function endOfMonth(month: number, year: number): Date {
   return new Date(Date.UTC(year, month, 0));
 }
@@ -224,12 +149,16 @@ function periodOf(day: Date): { month: number; year: number } {
   return { month: day.getUTCMonth() + 1, year: day.getUTCFullYear() };
 }
 
-/**
- * A wall-clock IST moment on a business day, expressed as the instant it
- * really was — 08:00 in the shop is 02:30 UTC.
- */
+// 08:00 in the shop is 02:30 UTC.
 function atIst(day: Date, hour: number, minute = 0): Date {
   return new Date(day.getTime() + (hour * 60 + minute - 330) * 60_000);
+}
+
+// Today is only part way through, so an entry the shop has not reached yet
+// must not exist. Without this the demo shows entries recorded hours from now,
+// and the "last entry" marker points at a time nobody has worked to.
+function hasHappened(at: Date): boolean {
+  return at.getTime() <= Date.now();
 }
 
 function monthLabel(month: number, year: number): string {
@@ -240,14 +169,10 @@ function monthLabel(month: number, year: number): string {
   });
 }
 
-// ── Money and quantities ───────────────────────────────────────────────────
-
-/** Money is stored in whole rupees; an `Int` column rejects 142.5 outright. */
 function money(value: number): number {
   return Math.round(value);
 }
 
-/** Litres stay fractional — 2.5 L is an ordinary quantity. */
 function litres(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -256,7 +181,6 @@ function sumMoney(values: number[]): number {
   return money(values.reduce((total, value) => total + value, 0));
 }
 
-/** Matches how the running app writes money into an audit log. */
 function formatSeedMoney(value: number): string {
   return `Rs. ${Math.round(value).toLocaleString("en-IN")}`;
 }
@@ -269,8 +193,6 @@ function pick<T>(items: readonly T[], index: number): T {
   return items[((index % items.length) + items.length) % items.length]!;
 }
 
-// ── Bulk insert ────────────────────────────────────────────────────────────
-
 async function insertAll<T>(rows: T[], write: (data: T[]) => Promise<unknown>): Promise<number> {
   for (let index = 0; index < rows.length; index += CHUNK_SIZE) {
     await write(rows.slice(index, index + CHUNK_SIZE));
@@ -278,8 +200,6 @@ async function insertAll<T>(rows: T[], write: (data: T[]) => Promise<unknown>): 
 
   return rows.length;
 }
-
-// ── Static tables ──────────────────────────────────────────────────────────
 
 const USER_SEED = [
   { fullName: "Naimish Sojitra", mobileNumber: "9876543210", email: "user1@gmail.com", role: "owner" as const, status: "active" as const },
@@ -300,7 +220,6 @@ const MILK_TYPE_SEED = [
   { name: "Cow 54", rate: 54, shortCode: "COW54", status: "inactive" as const },
 ];
 
-/** Prices are the seed's own: `ProductSuggestion` only stores the name. */
 const PRODUCT_SEED = [
   { name: "Bread", price: 40 },
   { name: "Butter", price: 60 },
@@ -354,15 +273,11 @@ const CUSTOMER_NOTES = [
   "Pays on the first of the month",
 ];
 
-/** How many customers hold a card, and therefore have a ledger and bills. */
 const CARDED_CUSTOMERS = 30;
-/** Active, but waiting on a card — shows the unassigned state in the UI. */
 const UNCARDED_CUSTOMERS = 4;
 const ARCHIVED_CUSTOMERS = 6;
 const TOTAL_CUSTOMERS = CARDED_CUSTOMERS + UNCARDED_CUSTOMERS + ARCHIVED_CUSTOMERS;
 const TOTAL_CARDS = 45;
-
-// ── Row shapes built in memory before insertion ────────────────────────────
 
 interface SeedUser {
   id: string;
@@ -494,7 +409,6 @@ interface SeedPayment {
   reversedById: string | null;
 }
 
-/** Mirrors the `AuditLogType` enum; kept local so the seed reads on its own. */
 type SeedAuditLogType =
   | "customer_created"
   | "customer_updated"
@@ -525,16 +439,7 @@ interface SeedAuditLog {
   relatedEntityId?: string;
 }
 
-// ── Wipe ───────────────────────────────────────────────────────────────────
-
-/**
- * Empties every collection, children before parents.
- *
- * Prisma enforces required relations even on MongoDB, so deleting users while
- * an `AuthSession` still points at one fails with P2014 and takes the whole
- * seed down with it. Sessions and deposit transactions are the two that are
- * easy to forget, because nothing in this file creates them directly.
- */
+// Children before parents: a collection left out of this aborts the whole seed with P2014.
 async function wipe(prisma: PrismaClient): Promise<void> {
   await prisma.authSession.deleteMany();
   await prisma.functionOrderAuditLog.deleteMany();
@@ -553,8 +458,7 @@ async function wipe(prisma: PrismaClient): Promise<void> {
   await prisma.counter.deleteMany();
 }
 
-// ── Seed ───────────────────────────────────────────────────────────────────
-
+// Everything is dated relative to today, so the demo never goes quiet as the calendar moves.
 export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
   const { prisma, password } = options;
   const log = options.log ?? (() => {});
@@ -569,10 +473,7 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
   const lastMonthStart = startOfMonth(today, -1);
   const twoMonthsAgoStart = startOfMonth(today, -2);
 
-  /** The shop has been on the system since a little before the oldest bill. */
   const openedOn = addDays(twoMonthsAgoStart, -20);
-
-  // ── Users ────────────────────────────────────────────────────────────────
 
   const users: SeedUser[] = USER_SEED.map((seed) => ({
     id: objectId(),
@@ -598,10 +499,7 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
   const owner = users[0]!;
   const staff = users.filter((_, index) => USER_SEED[index]!.status === "active");
 
-  /** Spreads authorship around, so audit logs are not all by one person. */
   const actor = (index: number): string => pick(staff, index).id;
-
-  // ── Catalogue ────────────────────────────────────────────────────────────
 
   const milkTypes: SeedMilkType[] = MILK_TYPE_SEED.map((seed) => ({
     id: objectId(),
@@ -647,8 +545,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
     createdAt: openedOn,
   }));
 
-  // ── Customers, cards and deposits ────────────────────────────────────────
-
   const customers: SeedCustomer[] = [];
   const customerRows = [];
   const assignmentRows = [];
@@ -661,7 +557,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
     const isCarded = index < CARDED_CUSTOMERS;
     const isArchived = index >= CARDED_CUSTOMERS + UNCARDED_CUSTOMERS;
 
-    // Deposits are taken in round figures; a couple of customers have none.
     const depositAmount = index % 11 === 0 ? 0 : pick([1000, 1500, 2000, 2500, 3000], index);
 
     const milkTypeCount = index % 6 === 0 ? 2 : 1;
@@ -743,8 +638,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
     }
 
     if (depositAmount > 0) {
-      // Most deposits were taken in one go; some were topped up later, and the
-      // running balance has to end on the customer's current `depositAmount`.
       const toppedUpLater = index % 7 === 3 && depositAmount >= 2000;
       const initial = toppedUpLater ? depositAmount - 500 : depositAmount;
 
@@ -816,16 +709,10 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
 
   const cardedCustomers = customers.filter((customer) => customer.assignmentId !== null);
 
-  // ── Daily ledgers ────────────────────────────────────────────────────────
-  //
-  // Three months up to and including today, so the current month's ledger and
-  // today's quick entry both have something in them.
-
   const ledgers: SeedLedger[] = [];
   let ledgerEntryCount = 0;
 
   for (const customer of cardedCustomers) {
-    // A few customers joined part way through, so the list is not uniform.
     const startedOn =
       customer.index >= CARDED_CUSTOMERS - 4
         ? addDays(lastMonthStart, 6 + (customer.index % 5))
@@ -838,11 +725,12 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
       : undefined;
 
     for (let day = startedOn; day <= today; day = addDays(day, 1)) {
-      // Everyone takes the occasional day off.
       if (random() < 0.08) continue;
 
       const entries: LedgerEntry[] = [];
       const recordedById = actor(customer.index + day.getUTCDate());
+
+      const morningAt = atIst(day, 7, 30 + (customer.index % 25));
 
       const morningLitres = litres(pick([0.5, 1, 1, 1.5, 2, 2, 2.5, 3], customer.index + day.getUTCDate()));
       const morningMilk: LedgerMilkEntry = {
@@ -853,18 +741,22 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
         amount: money(morningLitres * primaryMilk.rate),
       };
 
-      entries.push({
-        id: nanoid(12),
-        createdAt: atIst(day, 7, 30 + (customer.index % 25)),
-        createdById: recordedById,
-        clientRequestId: "",
-        milkEntries: [morningMilk],
-        productEntries: [],
-        notes: "",
-        totalAmount: morningMilk.amount,
-      });
+      if (hasHappened(morningAt)) {
+        entries.push({
+          id: nanoid(12),
+          createdAt: morningAt,
+          createdById: recordedById,
+          clientRequestId: "",
+          milkEntries: [morningMilk],
+          productEntries: [],
+          notes: "",
+          totalAmount: morningMilk.amount,
+        });
+      }
 
-      if (secondaryMilk && random() < 0.35) {
+      const eveningAt = atIst(day, 19, 10 + (customer.index % 20));
+
+      if (secondaryMilk && random() < 0.35 && hasHappened(eveningAt)) {
         const eveningLitres = litres(pick([0.5, 1, 1.5], customer.index + day.getUTCDate()));
         const eveningMilk: LedgerMilkEntry = {
           milkTypeId: secondaryMilk.id,
@@ -876,7 +768,7 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
 
         entries.push({
           id: nanoid(12),
-          createdAt: atIst(day, 19, 10 + (customer.index % 20)),
+          createdAt: eveningAt,
           createdById: recordedById,
           clientRequestId: "",
           milkEntries: [eveningMilk],
@@ -886,7 +778,9 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
         });
       }
 
-      if (random() < 0.28) {
+      const middayAt = atIst(day, 13, 5 + (customer.index % 30));
+
+      if (random() < 0.28 && hasHappened(middayAt)) {
         const product = pick(products, customer.index + day.getUTCDate() * 3);
         const quantity = random() < 0.25 ? 2 : 1;
 
@@ -900,7 +794,7 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
 
         entries.push({
           id: nanoid(12),
-          createdAt: atIst(day, 13, 5 + (customer.index % 30)),
+          createdAt: middayAt,
           createdById: recordedById,
           clientRequestId: "",
           milkEntries: [],
@@ -909,6 +803,8 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
           totalAmount: productEntry.amount,
         });
       }
+
+      if (entries.length === 0) continue;
 
       ledgerEntryCount += entries.length;
 
@@ -925,7 +821,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
     }
   }
 
-  // A handful of recent entries show up in the customer's audit trail.
   for (const ledger of ledgers.filter((row) => row.ledgerDate >= addDays(today, -3))) {
     const entry = ledger.entries[0]!;
     const milk = entry.milkEntries[0];
@@ -950,19 +845,11 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
     });
   }
 
-  // ── Bills ────────────────────────────────────────────────────────────────
-  //
-  // The two completed months are billed. The current month deliberately is
-  // not, so a reviewer can generate this month's bills themselves and watch it
-  // work against real ledger data.
-
   const bills: SeedBill[] = [];
   const payments: SeedPayment[] = [];
 
-  /** Still-open balance per customer, rolled into the next bill generated. */
   const openBalances = new Map<string, { billId: string; amount: number }>();
 
-  // Two customers were already owed money when the shop moved onto the system.
   const openingBalanceCustomers = cardedCustomers.slice(0, 2);
   const openingPeriod = periodOf(startOfMonth(today, -3));
 
@@ -1037,7 +924,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
 
       if (monthLedgers.length === 0) continue;
 
-      // Aggregate the month's entries the same way `generateBill` does.
       const milkMap = new Map<string, SeedBill["milkSummary"][number]>();
       const itemMap = new Map<string, SeedBill["otherItems"][number]>();
 
@@ -1082,9 +968,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
       const otherItemsTotal = sumMoney(otherItems.map((item) => item.amount));
       const totalItemsCount = otherItems.reduce((total, item) => total + item.quantity, 0);
 
-      // Anything still open from an earlier bill moves onto this one, and out
-      // of the earlier bill's outstanding, so the same debt is never counted
-      // twice across bills.
       const carried = openBalances.get(customer.id);
       const previousDue = carried?.amount ?? 0;
 
@@ -1105,8 +988,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
         sumMoney(milkSummary.map((item) => item.amount)) + otherItemsTotal + previousDue,
       );
 
-      // Most bills get settled; the most recent month leaves more open, so the
-      // dashboard has pending bills and a real outstanding figure.
       const roll = random();
       const status: "paid" | "partial" | "unpaid" = isMostRecent
         ? roll < 0.45
@@ -1237,8 +1118,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
     }
   }
 
-  // One reversed payment, so the demo shows a bounced entry being backed out
-  // without it counting towards what the customer has paid.
   const reversible = bills.find((bill) => bill.status === "unpaid" && !bill.isOpeningBalance);
 
   if (reversible) {
@@ -1287,11 +1166,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
     });
   }
 
-  // ── Receipt counters ─────────────────────────────────────────────────────
-  //
-  // Receipt numbers are `@unique` and the app hands them out from a counter.
-  // Without this, the first payment a visitor records would be issued
-  // REC-<year>-0001 again and fail on the unique index.
   const counterRows = [...new Set(payments.map((payment) => payment.receivedAt.getUTCFullYear()))].map(
     (year) => ({
       id: `receipt-${year}`,
@@ -1300,11 +1174,7 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
     }),
   );
 
-  // ── Function orders ──────────────────────────────────────────────────────
-
   const functionOrderRows = buildFunctionOrders(today, owner.id, actor(2));
-
-  // ── A few catalogue changes worth showing in the audit trail ─────────────
 
   for (const customer of cardedCustomers.slice(0, 6)) {
     const changedOn = addDays(lastMonthStart, 4 + customer.index);
@@ -1341,8 +1211,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
   }
 
   auditLogs.sort((left, right) => left.performedAt.getTime() - right.performedAt.getTime());
-
-  // ── Write ────────────────────────────────────────────────────────────────
 
   await insertAll(userRows, (data) => prisma.user.createMany({ data }));
   await insertAll(milkTypeRows, (data) => prisma.milkType.createMany({ data }));
@@ -1388,12 +1256,6 @@ export async function seedDatabase(options: SeedOptions): Promise<SeedSummary> {
   return summary;
 }
 
-// ── Function orders ────────────────────────────────────────────────────────
-
-/**
- * A handful of catering orders around today, so the dashboard's "Upcoming
- * Function Orders" panel is populated and the page has something to open.
- */
 function buildFunctionOrders(today: Date, ownerId: string, staffId: string) {
   const { month, year } = periodOf(today);
   const prefix = `FO-${String(month).padStart(2, "0")}-${year}`;

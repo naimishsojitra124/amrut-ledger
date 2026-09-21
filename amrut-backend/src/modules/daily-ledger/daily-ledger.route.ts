@@ -5,9 +5,11 @@ import { PERMISSIONS } from "@/app/auth/permissions";
 import {
   addLedgerEntryHandler,
   createTodayLedgerHandler,
+  setNoPurchaseHandler,
   deleteLedgerEntryHandler,
   getCustomerLedgerSummaryHandler,
   getCustomerLedgersHandler,
+  getLastLedgerEntryHandler,
   getLedgerByDateHandler,
   getTodayLedgerHandler,
   updateLedgerEntryHandler,
@@ -32,7 +34,14 @@ export const dailyLedgerRoutes: FastifyPluginAsync = async (app) => {
 
   app.post("/:customerId/ledgers/:date/entries", { preHandler: canCreate }, addLedgerEntryHandler);
 
-  // Addressed by entry id rather than array position — see the schema.
+  // Marking a day as "bought nothing" is recording the round, so it needs the same
+  // permission as adding an entry.
+  app.patch(
+    "/:customerId/ledgers/:date/no-purchase",
+    { preHandler: canCreate },
+    setNoPurchaseHandler,
+  );
+
   app.patch(
     "/:customerId/ledgers/:date/entries/:entryId",
     { preHandler: requirePermission(PERMISSIONS.LEDGER_ENTRY_UPDATE) },
@@ -42,5 +51,16 @@ export const dailyLedgerRoutes: FastifyPluginAsync = async (app) => {
     "/:customerId/ledgers/:date/entries/:entryId",
     { preHandler: requirePermission(PERMISSIONS.LEDGER_ENTRY_DELETE) },
     deleteLedgerEntryHandler,
+  );
+};
+
+// Not customer-scoped: it answers "where did we get to", across every customer.
+export const ledgerProgressRoutes: FastifyPluginAsync = async (app) => {
+  app.addHook("preHandler", authenticate);
+
+  app.get(
+    "/last-entry",
+    { preHandler: requirePermission(PERMISSIONS.LEDGER_VIEW) },
+    getLastLedgerEntryHandler,
   );
 };

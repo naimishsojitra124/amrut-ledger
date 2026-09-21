@@ -13,23 +13,15 @@ export const dailyLedgerDateParamSchema = z.object({
   date: businessDateSchema,
 });
 
-/**
- * Entries are addressed by their stable id, not by position.
- *
- * Positions shift under you: if another device removes an entry while this
- * page is open, "entry 2" is no longer the row the user selected, and the
- * edit or deletion silently lands on the wrong one.
- */
 export const dailyLedgerEntryParamSchema = z.object({
   customerId: z.string().min(1, "Customer id is required"),
   date: businessDateSchema,
+  // Addressed by id, because positions shift when another device edits the same day.
   entryId: z.string().min(1, "Entry id is required"),
 });
 
 export const dailyLedgerListQuerySchema = z
   .object({
-    // Query-string values always arrive as strings; without coercion every
-    // paginated request to this endpoint failed validation.
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
     month: z.coerce.number().int().min(1).max(12).optional(),
@@ -53,7 +45,6 @@ export const dailyLedgerProductEntrySchema = z.object({
   productSuggestionId: z.string().min(1).optional().nullable(),
   itemName: z.string().trim().min(1, "Item name is required").max(100),
   quantity: z.coerce.number().int().positive("Quantity must be greater than 0"),
-  // Whole rupees, matching how money is stored throughout the system.
   unitPrice: z.coerce
     .number()
     .int("Unit price must be a whole number of rupees")
@@ -79,6 +70,10 @@ export const addDailyLedgerEntrySchema = z
       message: "At least one entry is required",
     },
   );
+
+export const setNoPurchaseSchema = z.object({
+  noPurchase: z.boolean(),
+});
 
 export const updateDailyLedgerEntrySchema = z.object({
   milkEntries: z.array(dailyLedgerMilkEntrySchema).optional(),

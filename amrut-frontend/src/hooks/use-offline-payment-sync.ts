@@ -7,11 +7,7 @@ import { paymentQueue } from "@/services/offline-payment-queue.service";
 
 const MAX_ATTEMPTS = 8;
 
-/**
- * A queued payment is money the shop has already taken. An expired session or
- * a momentarily unavailable server must never cause it to be discarded, so
- * those statuses keep the item pending instead of dead-lettering it.
- */
+// A queued payment is money already taken, so only a real rejection may drop it.
 const RETRYABLE_STATUSES = new Set([401, 403, 408, 425, 429, 500, 502, 503, 504]);
 
 function isRetryable(status: number | undefined): boolean {

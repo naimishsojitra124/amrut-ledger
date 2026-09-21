@@ -65,8 +65,6 @@ const Sidebar = () => {
 
   const { can } = usePermissions();
 
-  // Hiding a link the user cannot open avoids sending them to a page that
-  // would only refuse them. The routes themselves are guarded too.
   const visibleItems = SIDEBAR_ITEMS.filter(
     (item) => item.isVisible !== false && (item.permission === null || can(item.permission)),
   );

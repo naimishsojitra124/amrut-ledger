@@ -10,3 +10,8 @@ declare module "fastify" {
     refreshTokenJwtVerify: () => Promise<void>;
   }
 }
+declare module "fastify" {
+  interface FastifyInstance {
+    realtime: import("@/app/realtime/realtime.hub").RealtimeHub;
+  }
+}

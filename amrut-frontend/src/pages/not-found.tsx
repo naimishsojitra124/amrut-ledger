@@ -5,20 +5,10 @@ import { ArrowLeft, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 
-/**
- * 404, in keeping with the rest of the app: a milk bottle has gone over.
- *
- * The bottle rocks towards the pointer and can be nudged again by clicking it,
- * which spreads the puddle a little further. All of it is decorative — the way
- * out is the two buttons, which are reachable by keyboard and never depend on
- * the animation running.
- *
- * Honours `prefers-reduced-motion`: no drips, no rocking, no wobble.
- */
-
 const MAX_ROCK_DEGREES = 7;
 const MAX_NUDGES = 6;
 
+// The bottle is decorative; the two buttons are the way out and work without it.
 export default function NotFound() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
@@ -94,7 +84,7 @@ export default function NotFound() {
           className="relative mb-4 flex h-44 w-full items-center justify-center"
         >
           {/* The spill it has left behind. */}
-          <div className="absolute bottom-5 left-1/2 flex -translate-x-[62%] items-center justify-center">
+          <div className="absolute bottom-5 left-1/2 flex translate-x-[-62%] items-center justify-center">
             <span
               className="block rounded-[50%] bg-slate-200 transition-[width] duration-500 ease-out"
               style={{ width: `${puddleWidth}px`, height: "20px" }}
@@ -114,7 +104,7 @@ export default function NotFound() {
           {Array.from({ length: 3 }).map((_, index) => (
             <span
               key={index}
-              className="amrut-drip absolute block h-3 w-[7px] rounded-full bg-slate-300"
+              className="amrut-drip absolute block h-3 w-1.75 rounded-full bg-slate-300"
               style={{
                 left: `calc(50% - ${62 + index * 3}px)`,
                 top: "100px",

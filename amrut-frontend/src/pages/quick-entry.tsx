@@ -6,7 +6,9 @@ import { toast } from "sonner";
 import PageHeader from "@/components/common/page-header";
 import QuickEntryCustomerCard from "@/components/quick-entry/quick-entry-customer-card";
 import QuickEntryForm from "@/components/quick-entry/quick-entry-form";
+import QuickEntryLastEntry from "@/components/quick-entry/quick-entry-last-entry";
 import QuickEntryLedger from "@/components/quick-entry/quick-entry-ledger";
+import QuickEntryNoPurchase from "@/components/quick-entry/quick-entry-no-purchase";
 
 import { useCustomerByCardNumberQuery } from "@/services/customer.service";
 import type { Customer } from "@/types/customer";
@@ -98,6 +100,14 @@ export default function QuickEntry() {
     selectedDate,
   );
 
+  // Jumps straight to where the previous person stopped, so the next card is
+  // one keystroke away rather than something to work out from the paper book.
+  function handleResumeFromLastEntry(date: string, lastCardNumber: number) {
+    setSelectedDate(date);
+    setCardNumber(String(lastCardNumber));
+    setSearchQuery(String(lastCardNumber));
+  }
+
   function handleSearchCustomer() {
     const normalizedCardNumber = cardNumber.trim();
 
@@ -184,6 +194,11 @@ export default function QuickEntry() {
         </div>
       )}
 
+      <QuickEntryLastEntry
+        selectedDate={selectedDate}
+        onResume={handleResumeFromLastEntry}
+      />
+
       <QuickEntryCustomerCard
         cardNumber={cardNumber}
         onCardNumberChange={setCardNumber}
@@ -193,6 +208,12 @@ export default function QuickEntry() {
         onDateChange={setSelectedDate}
         customer={selectedCustomer}
         ledger={ledgerQuery.data ?? null}
+      />
+
+      <QuickEntryNoPurchase
+        customer={selectedCustomer}
+        ledger={ledgerQuery.data ?? null}
+        selectedDate={selectedDate}
       />
 
       <QuickEntryForm

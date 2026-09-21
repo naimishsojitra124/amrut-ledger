@@ -1,5 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 
+import type { RealtimeChangeEvent, RealtimeResource } from "@/services/realtime/realtime.types";
+
 const ROOTS = {
   customers: ["customers"] as const,
   customerList: ["customers", "list"] as const,
@@ -24,6 +26,7 @@ const ROOTS = {
   paymentDetail: ["payments", "detail"] as const,
 
   dailyLedgers: ["daily-ledgers"] as const,
+  ledgerLastEntry: ["daily-ledgers", "last-entry"] as const,
 
   cards: ["cards"] as const,
   cardList: ["cards", "list"] as const,
@@ -38,6 +41,8 @@ const ROOTS = {
   functionOrderReminders: ["function-orders", "reminders"] as const,
 
   productSuggestions: ["product-suggestions"] as const,
+
+  milkTypes: ["milk-types"] as const,
 
   users: ["users"] as const,
 
@@ -57,11 +62,6 @@ async function invalidate(
   );
 }
 
-/**
- * Customer creation affects all customer list variants and statistics.
- * Available cards are also affected because a newly created customer can
- * become eligible for card assignment workflows.
- */
 export async function invalidateCustomerCreated(queryClient: QueryClient) {
   return invalidate(queryClient, [
     ROOTS.customerList,
@@ -71,10 +71,7 @@ export async function invalidateCustomerCreated(queryClient: QueryClient) {
   ]);
 }
 
-/**
- * An opening balance is a receivable, so it moves the customer's outstanding
- * total, their bill list and every bill-wide aggregate it feeds.
- */
+// A receivable, so it moves the customer's outstanding total and every bill aggregate.
 export async function invalidateOpeningBalanceChanged(
   queryClient: QueryClient,
   customerId: string,
@@ -91,10 +88,6 @@ export async function invalidateOpeningBalanceChanged(
   ]);
 }
 
-/**
- * Customer profile updates can change every customer-facing representation,
- * but do not need bill/payment-wide invalidation.
- */
 export async function invalidateCustomerUpdated(
   queryClient: QueryClient,
   customerId: string,
@@ -106,9 +99,7 @@ export async function invalidateCustomerUpdated(
   ]);
 }
 
-/**
- * Archive/restore changes list membership/status and customer statistics.
- */
+// Archive/restore changes list membership/status and customer statistics.
 export async function invalidateCustomerStatusChanged(
   queryClient: QueryClient,
   customerId: string,
@@ -121,13 +112,7 @@ export async function invalidateCustomerStatusChanged(
   ]);
 }
 
-/**
- * Ledger mutations can change the visible customer outstanding amount,
- * daily history, statement and derived customer financial views.
- *
- * The specific ledger cache is written directly by the mutation, while these
- * dependent queries are invalidated/refetched when active.
- */
+// The ledger cache is written directly; these dependants only need refreshing.
 export async function invalidateCustomerLedgerChanged(
   queryClient: QueryClient,
   customerId: string,
@@ -138,12 +123,10 @@ export async function invalidateCustomerLedgerChanged(
     [...ROOTS.customerDailyHistory, customerId],
     [...ROOTS.customerBills, customerId],
     [...ROOTS.customerStatement, customerId],
+    ROOTS.ledgerLastEntry,
   ]);
 }
 
-/**
- * Bill generation changes bill lists/summaries and customer financial views.
- */
 export async function invalidateBillGenerated(
   queryClient: QueryClient,
   customerId: string,
@@ -161,10 +144,6 @@ export async function invalidateBillGenerated(
   ]);
 }
 
-/**
- * A payment changes the payment history, bill state, outstanding balance,
- * customer financial views and dashboard aggregates.
- */
 export async function invalidatePaymentRecorded(
   queryClient: QueryClient,
   customerId: string,
@@ -190,10 +169,6 @@ export async function invalidatePaymentRecorded(
   ]);
 }
 
-/**
- * Deposit changes the customer's account/statement and potentially the
- * balance shown in customer list/detail views.
- */
 export async function invalidateCustomerDepositChanged(
   queryClient: QueryClient,
   customerId: string,
@@ -205,9 +180,6 @@ export async function invalidateCustomerDepositChanged(
   ]);
 }
 
-/**
- * Card mutations affect list, available-card selectors and numbering.
- */
 export async function invalidateCardCollectionChanged(
   queryClient: QueryClient,
 ) {
@@ -230,10 +202,6 @@ export async function invalidateCardChanged(
   ]);
 }
 
-/**
- * Function orders are operational data. Any mutation can affect dashboard
- * upcoming orders, list views and reminders.
- */
 export async function invalidateFunctionOrdersChanged(
   queryClient: QueryClient,
   functionOrderId?: string,
@@ -253,26 +221,43 @@ export async function invalidateFunctionOrdersChanged(
   return invalidate(queryClient, keys);
 }
 
-/**
- * Product suggestions are master data used by Quick Entry.
- */
 export async function invalidateProductSuggestionsChanged(
   queryClient: QueryClient,
 ) {
   return invalidate(queryClient, [ROOTS.productSuggestions]);
 }
 
-/**
- * Users are master/admin data. Updating one user does not require touching
- * unrelated business-data caches.
- */
 export async function invalidateUsersChanged(queryClient: QueryClient) {
   return invalidate(queryClient, [ROOTS.users]);
 }
 
-/**
- * System job changes only affect scheduler status.
- */
 export async function invalidateSystemJobsChanged(queryClient: QueryClient) {
   return invalidate(queryClient, [ROOTS.systemJobs]);
+}
+
+// Every customer key begins with "customers", so one root covers the list, the stats, the
+// drawer and the statement. Breadth is cheap: invalidation refetches only mounted queries.
+const REALTIME_KEYS: Record<RealtimeResource, readonly (readonly unknown[])[]> = {
+  // Opening or closing an account moves card availability and the card-ordered list.
+  customer: [ROOTS.customers, ROOTS.cards],
+  "customer-deposit": [ROOTS.customers],
+  "opening-balance": [ROOTS.customers, ROOTS.bills],
+  "daily-ledger": [ROOTS.customers, ROOTS.dailyLedgers],
+  bill: [ROOTS.bills, ROOTS.customers],
+  payment: [ROOTS.payments, ROOTS.bills, ROOTS.customers],
+  // Reassigning a card renumbers the customer list.
+  card: [ROOTS.cards, ROOTS.customers],
+  "function-order": [ROOTS.functionOrders],
+  // A changed rate is printed against every customer that uses it.
+  "milk-type": [ROOTS.milkTypes, ROOTS.customers],
+  "product-suggestion": [ROOTS.productSuggestions],
+  user: [ROOTS.users],
+  "system-job": [ROOTS.systemJobs],
+};
+
+export async function invalidateFromRealtime(
+  queryClient: QueryClient,
+  event: RealtimeChangeEvent,
+) {
+  return invalidate(queryClient, REALTIME_KEYS[event.resource] ?? []);
 }

@@ -15,6 +15,7 @@ import type {
 import { env } from "@/config/env";
 import { assertCanActOnUser, assertNotDemoAccount } from "@/app/middleware/authorize";
 import type { UserRole } from "../../../generated/prisma/enums";
+import { searchTerm } from "@/app/db/search";
 
 function createHttpError(statusCode: number, message: string) {
   const error = new Error(message) as Error & { statusCode: number };
@@ -89,6 +90,7 @@ function buildSearchWhere(search?: string) {
   };
 }
 
+// The shop must never be left without an owner who can sign in.
 async function isLastActiveOwner(prisma: PrismaClient, userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -146,7 +148,7 @@ export async function getUsers(
   const skip = (page - 1) * limit;
 
   const where: any = {
-    ...(buildSearchWhere(query.search?.trim()) ?? {}),
+    ...(buildSearchWhere(searchTerm(query.search)) ?? {}),
   };
 
   const [totalItems, items] = await Promise.all([
@@ -287,14 +289,7 @@ export async function updateUser(
   return normalizeUser(user);
 }
 
-/**
- * Sets another user's password without knowing the current one.
- *
- * The seniority check is the important part: holding the reset permission must
- * never let someone reach an account at or above their own level. A manager
- * resetting the owner's password and then signing in as them would otherwise be
- * a complete takeover of the system.
- */
+// Seniority applies: a manager may reset an employee, never an owner or another manager.
 export async function changeUserPassword(
   app: FastifyInstance,
   id: string,
@@ -417,13 +412,7 @@ export async function archiveUser(
   return normalizeUser(user);
 }
 
-/**
- * Changing your own password.
- *
- * Requires the current password, so someone who walks up to an unlocked device
- * cannot lock the real user out of their own account. Every session is revoked
- * afterwards, which signs out any device still holding the old credentials.
- */
+// Requires the current password, so a borrowed session cannot lock the real owner out.
 export async function changeOwnPassword(
   app: FastifyInstance,
   userId: string,

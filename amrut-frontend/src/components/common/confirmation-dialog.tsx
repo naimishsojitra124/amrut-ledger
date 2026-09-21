@@ -30,8 +30,7 @@ export default function ConfirmationDialog() {
       }
       closeModal();
     } catch {
-      // API failures are announced once by the global error handler; the
-      // dialog only needs to stay open so the user can retry.
+      // Already reported by the global error handler.
     } finally {
       setIsPending(false);
     }
