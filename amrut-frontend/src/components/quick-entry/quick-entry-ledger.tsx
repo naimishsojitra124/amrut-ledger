@@ -474,6 +474,7 @@ export default function QuickEntryLedger({
                         {TIME_FORMATTER.format(entry.time)}
                       </div>
 
+                      {/* Timeline rail is intentionally removed on mobile. */}
                       <div className="relative hidden justify-center sm:flex">
                         <div className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-neutral-300" />
 

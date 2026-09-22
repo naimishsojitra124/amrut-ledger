@@ -1,6 +1,14 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { FunctionOrder } from "@/types/function-order";
+import {
+  formatFunctionOrderQuantity,
+  summariseFunctionOrderItem,
+} from "@/utils/function-order";
+
+function formatAmount(amount: number): string {
+  return `${amount < 0 ? "-" : ""}Rs ${Math.abs(amount).toFixed(2)}`;
+}
 
 export function generateFunctionOrderPdf(order: FunctionOrder) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
@@ -32,34 +40,46 @@ export function generateFunctionOrderPdf(order: FunctionOrder) {
   doc.text(`Mobile: ${order.mobileNumber}`, 14, y);
   if (order.eventName) doc.text(`Event: ${order.eventName}`, 110, y);
   y += 6;
+
   const rows: string[][] = [];
+  // Charged rows are shaded so the eye lands on what is actually being billed.
+  const totalRowIndexes = new Set<number>();
   let total = 0;
+
   order.deliveryDays.forEach((day) =>
     day.items.forEach((item) => {
-      const add = (movement: string, quantity: number, sign: number) => {
-        const amount = quantity * item.unitPrice * sign;
-        total += amount;
+      const summary = summariseFunctionOrderItem(item);
+      const when = `${day.deliveryTime || "—"}${day.peopleCount ? ` / ${day.peopleCount} people` : ""}`;
+
+      summary.breakdown.forEach((movement) => {
         rows.push([
           day.deliveryDate,
-          `${day.deliveryTime || "—"}${day.peopleCount ? ` / ${day.peopleCount} people` : ""}`,
+          when,
           item.itemName,
-          movement,
-          `${quantity} ${item.unit}`,
-          `Rs ${item.unitPrice.toFixed(2)}`,
-          `${sign < 0 ? "-" : ""}Rs ${Math.abs(amount).toFixed(2)}`,
+          movement.label,
+          formatFunctionOrderQuantity(movement.quantity, item.unit),
+          "",
+          "",
         ]);
-      };
-      add("Initial dispatch", item.quantity, 1);
-      (item.movements ?? []).forEach((m) =>
-        add(
-          m.type === "dispatch" ? "Additional dispatch" : "Return",
-          m.quantity,
-          m.type === "return" ? -1 : 1,
-        ),
-      );
-      if (item.returnedQuantity) add("Return", item.returnedQuantity, -1);
+      });
+
+      totalRowIndexes.add(rows.length);
+
+      rows.push([
+        // Repeated only when this row stands alone, so a breakdown reads as one block.
+        summary.breakdown.length ? "" : day.deliveryDate,
+        summary.breakdown.length ? "" : when,
+        item.itemName,
+        summary.totalLabel,
+        summary.quantityLabel,
+        `Rs ${item.unitPrice.toFixed(2)}`,
+        formatAmount(summary.amount),
+      ]);
+
+      total += summary.amount;
     }),
   );
+
   autoTable(doc, {
     startY: y,
     head: [
@@ -81,15 +101,26 @@ export function generateFunctionOrderPdf(order: FunctionOrder) {
       fontStyle: "bold",
     },
     styles: { fontSize: 8, cellPadding: 2.4 },
-    columnStyles: { 6: { halign: "right" } },
+    columnStyles: {
+      5: { halign: "right" },
+      6: { halign: "right" },
+    },
+    didParseCell: (data) => {
+      if (data.section !== "body") return;
+      if (!totalRowIndexes.has(data.row.index)) return;
+
+      data.cell.styles.fontStyle = "bold";
+      data.cell.styles.fillColor = [238, 244, 249];
+    },
   });
+
   const finalY =
     (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable
       .finalY + 9;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(30, 30, 30);
-  doc.text(`Net total: Rs ${total.toFixed(2)}`, 196, finalY, {
+  doc.text(`Net total: ${formatAmount(total)}`, 196, finalY, {
     align: "right",
   });
   doc.setFont("helvetica", "normal");
