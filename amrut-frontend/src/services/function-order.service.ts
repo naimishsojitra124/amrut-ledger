@@ -19,6 +19,7 @@ import type {
   FunctionOrderInput,
   FunctionOrderListQuery,
   FunctionOrderListResponse,
+  FunctionOrderReminderResponse,
 } from "@/types/function-order";
 
 export const functionOrderQueryKeys = {
@@ -105,6 +106,29 @@ export const useFunctionOrderAuditLogsQuery = (id: string | null) =>
     enabled: Boolean(id),
     staleTime: QUERY_STALE_TIMES.functionOrderAuditLogs,
     gcTime: QUERY_GC_TIMES.long,
+    ...STANDARD_QUERY_BEHAVIOR,
+  });
+
+export const useFunctionOrderRemindersQuery = () =>
+  useQuery<FunctionOrderReminderResponse>({
+    queryKey: functionOrderQueryKeys.reminders(),
+
+    queryFn: async ({ signal }) => {
+      const response = await apiConnector<FunctionOrderReminderResponse>(
+        "GET",
+        "/function-orders/reminders",
+        undefined,
+        undefined,
+        undefined,
+        signal,
+      );
+
+      return response.data;
+    },
+
+    staleTime: QUERY_STALE_TIMES.functionOrdersList,
+    gcTime: QUERY_GC_TIMES.long,
+    refetchInterval: QUERY_REFETCH_INTERVALS.functionOrdersList,
     ...STANDARD_QUERY_BEHAVIOR,
   });
 

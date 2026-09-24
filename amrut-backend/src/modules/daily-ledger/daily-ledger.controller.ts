@@ -21,14 +21,7 @@ import {
   getTodayLedger,
   updateLedgerEntry,
 } from "./daily-ledger.service";
-
-function getCurrentUserId(request: FastifyRequest) {
-  const user = request.user as { sub?: string };
-  if (!user?.sub) {
-    throw new Error("Unauthorized");
-  }
-  return user.sub;
-}
+import { getCurrentUserId } from "@/app/middleware/authorize";
 
 export async function createTodayLedgerHandler(
   request: FastifyRequest,

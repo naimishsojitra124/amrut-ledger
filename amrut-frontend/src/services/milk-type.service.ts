@@ -1,4 +1,5 @@
 import { apiConnector } from "@/services/utils/apiConnector";
+import { getApiErrorMessage as getErrorMessage } from "@/services/utils/apiConnector";
 
 export type MilkTypeStatus = "active" | "inactive";
 
@@ -81,15 +82,6 @@ function normalizeMilkType(item: MilkTypeApiResponse): MilkType {
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
-}
-
-function getErrorMessage(error: any, fallback: string) {
-  return (
-    error?.response?.data?.message ||
-    error?.response?.data?.error ||
-    error?.message ||
-    fallback
-  );
 }
 
 export const milkTypeAPI = {

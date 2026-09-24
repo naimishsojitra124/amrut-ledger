@@ -6,7 +6,14 @@ import {
 
 import type { RealtimeChangeEvent, RealtimeStatus } from "./realtime.types";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000";
+
+// When the API is reached through a same-origin proxy the base is a path, not a URL.
+// A proxy cannot carry a websocket upgrade, so the socket needs the backend's own
+// origin and VITE_REALTIME_URL has to name it.
+const REALTIME_BASE_URL =
+  import.meta.env.VITE_REALTIME_URL ??
+  (/^https?:\/\//i.test(API_BASE_URL) ? API_BASE_URL : window.location.origin);
 
 const FIRST_RETRY_MS = 1_000;
 const MAX_RETRY_MS = 30_000;
@@ -26,7 +33,7 @@ type StatusListener = (status: RealtimeStatus) => void;
 type ResyncListener = () => void;
 
 function realtimeUrl(): string {
-  const url = new URL("/realtime", BASE_URL);
+  const url = new URL("/realtime", REALTIME_BASE_URL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }

@@ -133,9 +133,12 @@ export const FINANCIAL_QUERY_BEHAVIOR = {
 } as const;
 
 // Catalogue data barely changes, so it does not need a focus refetch.
-export const STATIC_QUERY_BEHAVIOR = {
-  refetchOnWindowFocus: false,
-  refetchOnReconnect: true,
-  refetchOnMount: true,
-  retry: retryQuery,
-} as const;
+
+// A queued write is kept and retried on these. 401/403 are included because an expired
+// access token is refreshed on the next attempt, not a reason to discard the entry.
+const RETRYABLE_STATUSES = new Set([401, 403, 408, 425, 429, 500, 502, 503, 504]);
+
+export function isRetryable(status: number | undefined): boolean {
+  if (status === undefined) return true;
+  return RETRYABLE_STATUSES.has(status) || status >= 500;
+}

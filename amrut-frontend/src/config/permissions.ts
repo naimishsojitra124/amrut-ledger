@@ -48,12 +48,3 @@ export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 export type UserRole = "owner" | "manager" | "employee" | "guest";
 
-// Hiding a route is courtesy; the API re-checks every request behind it.
-export const ROUTE_PERMISSIONS = {
-  "/dashboard": null,
-  "/customers": PERMISSIONS.CUSTOMER_VIEW,
-  "/quick-entry": PERMISSIONS.LEDGER_ENTRY_CREATE,
-  "/bills": PERMISSIONS.BILL_VIEW,
-  "/function-orders": PERMISSIONS.FUNCTION_ORDER_VIEW,
-  "/settings": null,
-} as const satisfies Record<string, Permission | null>;

@@ -38,6 +38,7 @@ import {
 } from "@/hooks/use-milk-types";
 import type { MilkType } from "@/services/milk-type.service";
 import { useModalStore } from "@/store/modal.store";
+import { clampPageIndex, renderPaginationItems } from "@/lib/pagination";
 
 type StatusFilter = "all" | "active" | "inactive";
 
@@ -59,33 +60,6 @@ function getShortCode(milkType: MilkType) {
     .join("")
     .slice(0, 8)
     .toUpperCase();
-}
-
-function renderPaginationItems(currentPage: number, pageCount: number) {
-  if (pageCount <= 5) {
-    return Array.from({ length: pageCount }, (_, index) => index + 1);
-  }
-
-  const items: Array<number | "..."> = [1];
-
-  if (currentPage > 3) {
-    items.push("...");
-  }
-
-  const start = Math.max(2, currentPage - 1);
-  const end = Math.min(pageCount - 1, currentPage + 1);
-
-  for (let page = start; page <= end; page += 1) {
-    items.push(page);
-  }
-
-  if (currentPage < pageCount - 2) {
-    items.push("...");
-  }
-
-  items.push(pageCount);
-
-  return items;
 }
 
 export default function MilkTypesTab() {
@@ -137,7 +111,7 @@ export default function MilkTypesTab() {
   }
 
   function goToPage(nextPageIndex: number) {
-    setPageIndex(Math.min(Math.max(nextPageIndex, 0), totalPages - 1));
+    setPageIndex(clampPageIndex(nextPageIndex, totalPages));
   }
 
   function handleToggleStatus(milkType: MilkType) {

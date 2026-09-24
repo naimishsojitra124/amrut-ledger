@@ -180,16 +180,6 @@ export async function invalidateCustomerDepositChanged(
   ]);
 }
 
-export async function invalidateCardCollectionChanged(
-  queryClient: QueryClient,
-) {
-  return invalidate(queryClient, [
-    ROOTS.cardList,
-    ROOTS.availableCards,
-    ROOTS.cardNumbering,
-  ]);
-}
-
 export async function invalidateCardChanged(
   queryClient: QueryClient,
   cardId: string,

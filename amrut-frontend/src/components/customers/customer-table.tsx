@@ -64,6 +64,7 @@ import { formatDate } from "@/utils/format-date";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { AVATAR_CLASSES } from "../settings/tabs/users-tab";
 import { cn } from "@/lib/utils";
+import { getInitials } from "@/lib/utils";
 
 type CustomerRow = CustomerListItemResponse;
 
@@ -89,17 +90,6 @@ const MOBILE_HIDDEN_COLUMNS = new Set([
   "mobileNumber",
   "primaryMilk",
 ]);
-
-function getInitials(fullName: string) {
-  return fullName
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
 
 function getResponsiveColumnClass(columnId: string) {
   return MOBILE_HIDDEN_COLUMNS.has(columnId) ? "hidden sm:table-cell" : "";
@@ -463,7 +453,7 @@ export default function CustomerTable({
           const actionPending = restoreCustomerMutation.isPending;
 
           return (
-            <div className="flex items-center justify-end gap-1.5 sm:gap-2">
+            <div className="flex items-center justify-center gap-1.5 sm:gap-2">
               <Button
                 type="button"
                 variant="outline"

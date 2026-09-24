@@ -22,13 +22,7 @@ import {
 import { enqueueLedgerEntry } from "@/services/offline-ledger-queue.service";
 import { useOfflineLedgerSync } from "@/hooks/use-offline-ledger-sync";
 import { offlineQuickEntryCache } from "@/services/offline-quick-entry-cache.service";
-
-const BUSINESS_TIME_ZONE = "Asia/Kolkata";
-
-const getBusinessDateString = () =>
-  new Intl.DateTimeFormat("en-CA", {
-    timeZone: BUSINESS_TIME_ZONE,
-  }).format(new Date());
+import { businessToday } from "@/config/business";
 
 const subscribeOnlineStatus = (callback: () => void) => {
   window.addEventListener("online", callback);
@@ -47,7 +41,7 @@ const getServerOnlineStatus = () => true;
 export default function QuickEntry() {
   const [cardNumber, setCardNumber] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedDate, setSelectedDate] = useState(getBusinessDateString);
+  const [selectedDate, setSelectedDate] = useState(businessToday);
 
   const isOnline = useSyncExternalStore(
     subscribeOnlineStatus,

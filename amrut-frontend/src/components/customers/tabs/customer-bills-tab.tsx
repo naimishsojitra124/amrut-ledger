@@ -30,6 +30,7 @@ import { formatCurrency } from "@/utils/format-currency";
 import { usePermissions } from "@/hooks/use-permissions";
 import { PERMISSIONS } from "@/config/permissions";
 import { generateBillPdf } from "@/utils/generate-bill-pdf";
+import { BUSINESS_DETAILS } from "@/config/business";
 
 type CustomerBillPdfCustomer = {
   id?: string;
@@ -242,8 +243,8 @@ export default function CustomerBillsTab({ customerId, customer }: Props) {
         dailyHistory: dailyHistory.items,
 
         business: {
-          name: "Amrut Dairy Farm",
-          address: "Gandhigram, 80ft Road, Rajkot, Gujarat",
+          name: BUSINESS_DETAILS.name,
+          address: BUSINESS_DETAILS.address,
         },
 
         customer: {

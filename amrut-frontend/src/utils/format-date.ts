@@ -1,4 +1,4 @@
-import { format, formatDistanceToNow } from "date-fns";
+import { format } from "date-fns";
 
 
 // Output: 10-06-2026
@@ -17,19 +17,5 @@ export const formatDateTime = (
   return format(
     new Date(date),
     "dd-MM-yyyy, hh:mm a"
-  );
-};
-
-
-
-// Output: 5 minutes ago, 5 hours ago, 3 days ago, etc.
-export const formatRelativeTime = (
-  date: Date | string
-) => {
-  return formatDistanceToNow(
-    new Date(date),
-    {
-      addSuffix: true,
-    }
   );
 };

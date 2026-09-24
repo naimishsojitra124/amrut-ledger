@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+
+import { DatePicker } from "@/components/common/date-picker";
+import { businessToday } from "@/config/business";
 import { Loader2 } from "lucide-react";
 
 import {
@@ -41,6 +44,7 @@ export function PaymentModal() {
   const [referenceNumber, setReferenceNumber] = useState("");
   const [notes, setNotes] = useState("");
   const [useDeposit, setUseDeposit] = useState(false);
+  const [receivedOn, setReceivedOn] = useState(businessToday);
 
   useEffect(() => {
     if (!isOpen || !bill) {
@@ -52,6 +56,7 @@ export function PaymentModal() {
     setReferenceNumber("");
     setNotes("");
     setUseDeposit(false);
+    setReceivedOn(businessToday());
   }, [isOpen, bill?.id]);
 
   if (!isOpen || !payment) {
@@ -105,6 +110,7 @@ export function PaymentModal() {
         paymentMethod: method,
         referenceNumber: referenceNumber.trim() || undefined,
         notes: notes.trim() || undefined,
+        receivedAt: receivedOn,
       },
       {
         onSuccess: closeModal,
@@ -186,6 +192,22 @@ export function PaymentModal() {
                     </span>
                   </div>
                 )}
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium">Payment Received On</label>
+
+                  <DatePicker
+                    value={receivedOn}
+                    onChange={setReceivedOn}
+                    className="h-11"
+                    disabled={recordPayment.isPending}
+                  />
+
+                  <p className="text-xs text-neutral-500">
+                    Set this to the day the money was taken, so a payment written in the
+                    book first carries the same date here.
+                  </p>
+                </div>
 
                 <div className="flex flex-col gap-1.5">
                   <label

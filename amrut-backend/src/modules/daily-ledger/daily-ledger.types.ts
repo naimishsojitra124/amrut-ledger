@@ -140,25 +140,6 @@ export interface DailyLedgerListQuery {
   year?: number | undefined;
 }
 
-export interface DailyLedgerDateParams {
-  customerId: string;
-  date: string;
-}
-
-export interface DailyLedgerCustomerParams {
-  customerId: string;
-}
-
-export interface DailyLedgerEntryIndexParams {
-  customerId: string;
-  date: string;
-  entryIndex: number;
-}
-
-export interface SetNoPurchaseRequest {
-  noPurchase: boolean;
-}
-
 export interface DailyLedgerNoPurchaseResponse {
   customerId: string;
   ledgerDate: string;

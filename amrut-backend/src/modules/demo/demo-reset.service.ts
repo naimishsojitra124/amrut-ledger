@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 
-import type { PrismaClient } from "../../../generated/prisma/client";
 import { env } from "@/config/env";
 import {
   createDemoAccount,
@@ -9,14 +8,11 @@ import {
   readLastDemoReset,
   seedDatabase,
 } from "./demo-seed";
+import { getPrisma } from "@/app/db/prisma";
 
 export { DEMO_ACCOUNT };
 
 let resetInFlight: Promise<void> | null = null;
-
-function getPrisma(app: FastifyInstance) {
-  return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
-}
 
 // Compared against a stored timestamp, because this host sleeps and a timer would just stop.
 function isStale(lastResetAt: Date | null): boolean {
@@ -48,7 +44,7 @@ async function runReset(app: FastifyInstance): Promise<void> {
 }
 
 // Joins the rebuild already running rather than starting a second one over it.
-export async function resetDemoData(app: FastifyInstance): Promise<void> {
+async function resetDemoData(app: FastifyInstance): Promise<void> {
   if (!env.demoMode) return;
 
   resetInFlight ??= runReset(app).finally(() => {
@@ -58,7 +54,7 @@ export async function resetDemoData(app: FastifyInstance): Promise<void> {
   return resetInFlight;
 }
 
-export async function resetDemoDataIfStale(app: FastifyInstance): Promise<boolean> {
+async function resetDemoDataIfStale(app: FastifyInstance): Promise<boolean> {
   if (!env.demoMode) return false;
 
   const lastResetAt = await readLastDemoReset(getPrisma(app));
@@ -70,7 +66,7 @@ export async function resetDemoDataIfStale(app: FastifyInstance): Promise<boolea
 }
 
 // Covers a database that has data but predates the demo, so the first visitor can sign in.
-export async function ensureDemoAccount(app: FastifyInstance): Promise<void> {
+async function ensureDemoAccount(app: FastifyInstance): Promise<void> {
   if (!env.demoMode) return;
 
   const prisma = getPrisma(app);

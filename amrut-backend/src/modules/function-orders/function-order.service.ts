@@ -8,20 +8,12 @@ import type {
   UpdateFunctionOrderRequest,
 } from "./function-order.types";
 
-import { buildPageInfo } from "../customer/customer.service";
+import { buildPageInfo } from "@/app/db/pagination";
 import { searchTerm } from "@/app/db/search";
+import { createHttpError as error } from "@/app/http-error";
+import { getPrisma } from "@/app/db/prisma";
+import { startOfBusinessDay, toBusinessDateString } from "@/app/business-date";
 
-const getPrisma = (app: FastifyInstance) =>
-  (
-    app as FastifyInstance & {
-      prisma: PrismaClient;
-    }
-  ).prisma;
-
-const error = (statusCode: number, message: string) =>
-  Object.assign(new Error(message), {
-    statusCode,
-  });
 
 const BUSINESS_TIME_ZONE = "Asia/Kolkata";
 
@@ -599,4 +591,113 @@ export async function getFunctionOrderReminders(app: FastifyInstance, daysAhead 
         })),
     ),
   };
+}
+
+/**
+ * What has to be cooked and packed over the next few days.
+ *
+ * Quantities are what must go OUT, so an additional dispatch is added but a return is not
+ * subtracted: a return happens after the delivery and cannot reduce what still has to be
+ * prepared for it.
+ */
+export async function getFunctionOrderPreparation(app: FastifyInstance, daysAhead: number) {
+  const today = toBusinessDateString();
+  const from = startOfBusinessDay(today);
+  const to = startOfBusinessDay(today);
+  to.setUTCDate(to.getUTCDate() + daysAhead + 1);
+
+  const orders = await getPrisma(app).functionOrder.findMany({
+    where: {
+      status: { in: ["draft", "confirmed"] },
+      deliveryDays: { some: { deliveryDate: { gte: from, lt: to } } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const days: {
+    orderId: string;
+    orderNumber: string;
+    customerName: string;
+    mobileNumber: string | null;
+    eventName: string;
+    deliveryDate: string;
+    deliveryTime: string;
+    peopleCount: number;
+    daysUntil: number;
+    dueForReminder: boolean;
+    items: { itemName: string; unit: string; quantity: number }[];
+  }[] = [];
+
+  for (const order of orders as FunctionOrder[]) {
+    for (const day of order.deliveryDays) {
+      const deliveryDate = toBusinessDateString(day.deliveryDate);
+      if (deliveryDate < today) continue;
+
+      const daysUntil = Math.round(
+        (startOfBusinessDay(deliveryDate).getTime() - startOfBusinessDay(today).getTime()) /
+          86_400_000,
+      );
+
+      if (daysUntil > daysAhead) continue;
+
+      days.push({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        mobileNumber: order.mobileNumber ?? null,
+        eventName: order.eventName,
+        deliveryDate,
+        deliveryTime: day.deliveryTime,
+        peopleCount: day.peopleCount,
+        daysUntil,
+        // The per-order lead time the editor already collects.
+        dueForReminder: daysUntil <= order.reminderDaysBefore,
+        items: day.items.map((item) => ({
+          itemName: item.itemName,
+          unit: item.unit,
+          quantity:
+            item.quantity +
+            (item.movements ?? [])
+              .filter((movement) => movement.type === "dispatch")
+              .reduce((total, movement) => total + movement.quantity, 0),
+        })),
+      });
+    }
+  }
+
+  days.sort((a, b) =>
+    a.deliveryDate === b.deliveryDate
+      ? a.deliveryTime.localeCompare(b.deliveryTime)
+      : a.deliveryDate.localeCompare(b.deliveryDate),
+  );
+
+  // One shopping list per day, so the kitchen sees a single total per item.
+  const byDate = new Map<string, Map<string, { itemName: string; unit: string; quantity: number }>>();
+
+  for (const day of days) {
+    const totals = byDate.get(day.deliveryDate) ?? new Map();
+
+    for (const item of day.items) {
+      const key = `${item.itemName} | ${item.unit}`;
+      const running = totals.get(key);
+
+      if (running) running.quantity += item.quantity;
+      else totals.set(key, { ...item });
+    }
+
+    byDate.set(day.deliveryDate, totals);
+  }
+
+  const preparation = [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([deliveryDate, totals]) => ({
+      deliveryDate,
+      daysUntil: Math.round(
+        (startOfBusinessDay(deliveryDate).getTime() - startOfBusinessDay(today).getTime()) /
+          86_400_000,
+      ),
+      items: [...totals.values()].sort((a, b) => a.itemName.localeCompare(b.itemName)),
+    }));
+
+  return { generatedAt: new Date().toISOString(), daysAhead, days, preparation };
 }

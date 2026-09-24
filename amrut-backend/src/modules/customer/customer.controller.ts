@@ -35,14 +35,7 @@ import {
   removeOpeningBalance,
   getOpeningBalance,
 } from "./customer.service";
-
-function getCurrentUserId(request: FastifyRequest) {
-  const user = request.user as { sub?: string };
-  if (!user?.sub) {
-    throw new Error("Unauthorized");
-  }
-  return user.sub;
-}
+import { getCurrentUserId } from "@/app/middleware/authorize";
 
 export async function topUpDepositHandler(request: FastifyRequest, reply: FastifyReply) {
   const { id } = customerIdParamSchema.parse(request.params);

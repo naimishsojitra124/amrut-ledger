@@ -92,3 +92,38 @@ export type FunctionOrderInput = Omit<
   | "createdAt"
   | "updatedAt"
 >;
+
+/** A single item to prepare, already summed across every order for that day. */
+export interface FunctionOrderPrepItem {
+  itemName: string;
+  unit: string;
+  quantity: number;
+}
+
+export interface FunctionOrderPrepDay {
+  deliveryDate: string;
+  daysUntil: number;
+  items: FunctionOrderPrepItem[];
+}
+
+export interface FunctionOrderReminderDay {
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  mobileNumber: string | null;
+  eventName: string;
+  deliveryDate: string;
+  deliveryTime: string;
+  peopleCount: number;
+  daysUntil: number;
+  dueForReminder: boolean;
+  items: FunctionOrderPrepItem[];
+}
+
+export interface FunctionOrderReminderResponse {
+  generatedAt: string;
+  daysAhead: number;
+  days: FunctionOrderReminderDay[];
+  preparation: FunctionOrderPrepDay[];
+}
+

@@ -16,6 +16,7 @@ import { SIDEBAR_ITEMS } from "./sidebar-items";
 import { usePermissions } from "@/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
+import { BUSINESS_DETAILS } from "@/config/business";
 
 const Sidebar = () => {
   const { isOpen, toggle, close } = useSidebar();
@@ -99,7 +100,7 @@ const Sidebar = () => {
             <div className="flex h-full w-full items-center justify-between">
               <img
                 src={ADFLogo}
-                alt="Amrut Dairy Farm"
+                alt={BUSINESS_DETAILS.name}
                 className="h-10 w-10 object-contain"
               />
 

@@ -38,6 +38,7 @@ import {
   type CardResponse,
   type CardStatus,
 } from "@/services/card.service";
+import { clampPageIndex, renderPaginationItems } from "@/lib/pagination";
 
 type StatusFilter = "all" | "assigned" | "available";
 
@@ -48,33 +49,6 @@ function getStatusBadgeClass(status: CardStatus) {
   return status === "assigned"
     ? "bg-blue-100 text-blue-700 hover:bg-blue-100"
     : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100";
-}
-
-function renderPaginationItems(currentPage: number, pageCount: number) {
-  if (pageCount <= 5) {
-    return Array.from({ length: pageCount }, (_, index) => index + 1);
-  }
-
-  const items: Array<number | "..."> = [1];
-
-  if (currentPage > 3) {
-    items.push("...");
-  }
-
-  const start = Math.max(2, currentPage - 1);
-  const end = Math.min(pageCount - 1, currentPage + 1);
-
-  for (let page = start; page <= end; page += 1) {
-    items.push(page);
-  }
-
-  if (currentPage < pageCount - 2) {
-    items.push("...");
-  }
-
-  items.push(pageCount);
-
-  return items;
 }
 
 function buildPageInfo(
@@ -203,7 +177,7 @@ export default function CardTab() {
   }, [filteredCards, selectedCardId, visibleCards]);
 
   function goToPage(nextPageIndex: number) {
-    setPageIndex(Math.min(Math.max(nextPageIndex, 0), pageInfo.totalPages - 1));
+    setPageIndex(clampPageIndex(nextPageIndex, pageInfo.totalPages));
   }
 
   return (

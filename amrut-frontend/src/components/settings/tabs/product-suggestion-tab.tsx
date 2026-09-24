@@ -44,6 +44,8 @@ import {
 } from "@/services/product-suggestion.service";
 import { toast } from "sonner";
 import { useModalStore } from "@/store/modal.store";
+import { clampPageIndex } from "@/lib/pagination";
+import { sortByDisplayOrder } from "@/services/product-suggestion.service";
 
 type StatusFilter = "all" | "active" | "inactive";
 type Mode = "create" | "edit";
@@ -81,15 +83,6 @@ function getProductEmoji(name: string) {
   };
 
   return emojiMap[normalized] ?? "🏷️";
-}
-
-function sortByDisplayOrder(items: ProductSuggestion[]) {
-  return [...items].sort((a, b) => {
-    if (a.displayOrder !== b.displayOrder) {
-      return a.displayOrder - b.displayOrder;
-    }
-    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-  });
 }
 
 function moveProduct(
@@ -172,6 +165,7 @@ export default function ProductSuggestionTab() {
     page: pageIndex + 1,
     limit: pageSize,
     search: searchQuery.trim() || undefined,
+    status: statusFilter === "all" ? undefined : statusFilter,
   });
 
   const activePreviewQuery = useActiveProductSuggestionsQuery();
@@ -187,12 +181,8 @@ export default function ProductSuggestionTab() {
   const totalPages = pageInfo?.totalPages ?? 1;
   const totalItems = pageInfo?.totalItems ?? 0;
 
-  const visibleProducts = useMemo(() => {
-    return products.filter((item) => {
-      if (statusFilter === "all") return true;
-      return item.status === statusFilter;
-    });
-  }, [products, statusFilter]);
+  // Filtered by the server, so the row count and the page count agree with what is shown.
+  const visibleProducts = products;
 
   const selectedProduct = useMemo(() => {
     if (mode === "create") return null;
@@ -345,7 +335,7 @@ export default function ProductSuggestionTab() {
   }
 
   function goToPage(nextPageIndex: number) {
-    setPageIndex(Math.min(Math.max(nextPageIndex, 0), totalPages - 1));
+    setPageIndex(clampPageIndex(nextPageIndex, totalPages));
   }
 
   const isBusy =

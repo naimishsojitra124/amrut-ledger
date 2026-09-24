@@ -1,3 +1,4 @@
+import { isRetryable } from "@/services/utils/query-config";
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { addDailyLedgerEntry } from "@/services/daily-ledger.service";
@@ -5,12 +6,6 @@ import { getApiErrorMessage } from "@/services/utils/apiConnector";
 import axios from "axios";
 
 // An expired session must never discard a queued entry: that is the user's unsaved work.
-const RETRYABLE_STATUSES = new Set([401, 403, 408, 425, 429, 500, 502, 503, 504]);
-
-function isRetryable(status: number | undefined): boolean {
-  if (status === undefined) return true;
-  return RETRYABLE_STATUSES.has(status) || status >= 500;
-}
 import {
   getQueuedLedgerEntries,
   removeQueuedLedgerEntry,

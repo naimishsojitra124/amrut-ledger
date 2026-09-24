@@ -21,17 +21,9 @@ export interface LoginResponse {
   accessToken: string;
 }
 
-export interface MeResponse {
-  user: AuthUser;
-}
-
 export interface RefreshResponse {
   user: AuthUser;
   accessToken: string;
-}
-
-export interface LogoutResponse {
-  success: true;
 }
 
 export interface JwtSessionPayload {
@@ -41,7 +33,3 @@ export interface JwtSessionPayload {
   sid?: string;
 }
 
-export interface SessionTokens {
-  accessToken: string;
-  refreshToken: string;
-}

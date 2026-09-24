@@ -10,10 +10,12 @@ import {
   deleteFunctionOrder,
   getFunctionOrder,
   getFunctionOrderAuditLogs,
-  getFunctionOrderReminders,
+  getFunctionOrderPreparation,
   listFunctionOrders,
   updateFunctionOrder,
 } from "./function-order.service";
+import { functionOrderReminderQuerySchema } from "./function-order.schema";
+import { env } from "@/config/env";
 
 const userId = (request: FastifyRequest) => {
   const id = (request.user as { sub?: string }).sub;
@@ -60,5 +62,7 @@ export async function getFunctionOrderAuditLogsHandler(request: FastifyRequest) 
   );
 }
 export async function getFunctionOrderRemindersHandler(request: FastifyRequest) {
-  return getFunctionOrderReminders(request.server);
+  const { daysAhead } = functionOrderReminderQuerySchema.parse(request.query);
+
+  return getFunctionOrderPreparation(request.server, daysAhead ?? env.functionReminderDaysAhead);
 }

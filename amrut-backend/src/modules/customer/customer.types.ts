@@ -88,20 +88,6 @@ export interface OpeningBalanceInput {
   notes?: string | undefined;
 }
 
-export interface OpeningBalanceResponse {
-  id: string;
-  billNumber: string;
-  month: number;
-  year: number;
-  amount: number;
-  totalPaid: number;
-  outstandingAmount: number;
-  status: string;
-  notes: string;
-  recordedAt: string;
-  carriedForwardToBillId: string | null;
-}
-
 export interface UpdateCustomerRequest {
   fullName?: string | undefined;
   mobileNumber?: string | undefined;

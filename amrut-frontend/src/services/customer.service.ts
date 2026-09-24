@@ -6,7 +6,7 @@ import {
 } from "@tanstack/react-query";
 import axios from "axios";
 
-import { apiConnector } from "./utils/apiConnector";
+import { apiConnector, cleanParams } from "./utils/apiConnector";
 import {
   invalidateCustomerCreated,
   invalidateCustomerDepositChanged,
@@ -42,19 +42,6 @@ import {
   type OpeningBalance,
   type OpeningBalanceInput,
 } from "@/types/customer";
-
-function cleanParams(params: Record<string, unknown>) {
-  return Object.fromEntries(
-    Object.entries(params).filter(([, value]) => {
-      return (
-        value !== undefined &&
-        value !== null &&
-        value !== "" &&
-        !(typeof value === "number" && Number.isNaN(value))
-      );
-    }),
-  );
-}
 
 function mapCustomer(customer: CustomerListItemResponse) {
   return {

@@ -4,13 +4,13 @@ import { History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLastLedgerEntryQuery } from "@/services/daily-ledger.service";
+import { BUSINESS_TIME_ZONE, businessToday } from "@/config/business";
 
 type Props = {
   selectedDate: string;
   onResume: (date: string, cardNumber: number) => void;
 };
 
-const BUSINESS_TIME_ZONE = "Asia/Kolkata";
 
 // The ledger date is a business day stored as UTC midnight.
 const LEDGER_DATE_FORMATTER = new Intl.DateTimeFormat("en-IN", {
@@ -29,12 +29,6 @@ const RECORDED_AT_FORMATTER = new Intl.DateTimeFormat("en-IN", {
   hour12: true,
   timeZone: BUSINESS_TIME_ZONE,
 });
-
-function businessToday() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: BUSINESS_TIME_ZONE,
-  }).format(new Date());
-}
 
 // Whole days between two yyyy-mm-dd business dates.
 function daysBetween(from: string, to: string) {

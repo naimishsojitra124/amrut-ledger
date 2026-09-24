@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowRight,
   CircleOff,
@@ -52,6 +52,8 @@ import {
 
 import { useModalStore } from "@/store/modal.store";
 import UserFormModal from "@/components/modals/user-form-modal";
+import { getInitials } from "@/lib/utils";
+import { clampPageIndex, renderPaginationItems } from "@/lib/pagination";
 
 type RoleFilter = "all" | UserRole;
 type StatusFilter = "all" | UserStatus;
@@ -118,16 +120,6 @@ export const AVATAR_CLASSES = [
   "bg-blue-200 text-blue-700",
 ];
 
-function getInitials(fullName: string) {
-  return fullName
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
-
 function formatLastLogin(date: string | null) {
   if (!date) {
     return "-";
@@ -140,34 +132,6 @@ function formatLastLogin(date: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function renderPaginationItems(currentPage: number, pageCount: number) {
-  if (pageCount <= 5) {
-    return Array.from({ length: pageCount }, (_, index) => index + 1);
-  }
-
-  const items: Array<number | "..."> = [1];
-
-  if (currentPage > 3) {
-    items.push("...");
-  }
-
-  const start = Math.max(2, currentPage - 1);
-
-  const end = Math.min(pageCount - 1, currentPage + 1);
-
-  for (let page = start; page <= end; page += 1) {
-    items.push(page);
-  }
-
-  if (currentPage < pageCount - 2) {
-    items.push("...");
-  }
-
-  items.push(pageCount);
-
-  return items;
 }
 
 export default function UsersTab() {
@@ -192,6 +156,8 @@ export default function UsersTab() {
     page: pageIndex + 1,
     limit: pageSize,
     search: searchQuery.trim() || undefined,
+    status: statusFilter === "all" ? undefined : statusFilter,
+    role: roleFilter === "all" ? undefined : roleFilter,
   });
 
   const statsQuery = useUserStatsQuery();
@@ -218,16 +184,8 @@ export default function UsersTab() {
     employeeCount: 0,
   };
 
-  const filteredUsers = useMemo(() => {
-    return users.filter((user) => {
-      const matchesRole = roleFilter === "all" || user.role === roleFilter;
-
-      const matchesStatus =
-        statusFilter === "all" || user.status === statusFilter;
-
-      return matchesRole && matchesStatus;
-    });
-  }, [users, roleFilter, statusFilter]);
+  // Filtered by the server, so the row count and the page count agree with what is shown.
+  const filteredUsers = users;
 
   const totalPages = Math.max(1, pageInfo.totalPages);
 
@@ -286,7 +244,7 @@ export default function UsersTab() {
   }
 
   function goToPage(nextPageIndex: number) {
-    setPageIndex(Math.min(Math.max(nextPageIndex, 0), totalPages - 1));
+    setPageIndex(clampPageIndex(nextPageIndex, totalPages));
   }
 
   return (
@@ -731,8 +689,8 @@ export default function UsersTab() {
                 </p>
 
                 <p>
-                  Role and status filters are applied to the currently loaded
-                  page.
+                  Role and status filters are applied across every user, not
+                  just the page on screen.
                 </p>
               </div>
             </div>

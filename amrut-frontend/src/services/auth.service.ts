@@ -1,4 +1,7 @@
 import { apiConnector } from "./utils/apiConnector";
+
+// Shorter than the default, so a sleeping backend is retried rather than waited out.
+const REFRESH_TIMEOUT_MS = 20_000;
 import type { Permission } from "@/config/permissions";
 
 export interface AuthUser {
@@ -73,21 +76,20 @@ export const authAPI = {
     }
   },
 
+  // The error is deliberately not rewrapped: the caller has to tell "the server refused"
+  // apart from "the server could not be reached", and a plain Error loses the status.
   refresh: async (): Promise<AuthResponse> => {
-    try {
-      const response = await apiConnector<AuthResponse>(
-        "POST",
-        "/auth/refresh",
-      );
-      return response.data;
-    } catch (error: any) {
-      throw new Error(
-        error.response?.data?.message ||
-          error.response?.data?.error ||
-          error.message ||
-          "Refresh failed",
-      );
-    }
+    const response = await apiConnector<AuthResponse>(
+      "POST",
+      "/auth/refresh",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { timeout: REFRESH_TIMEOUT_MS },
+    );
+
+    return response.data;
   },
 
   logout: async (): Promise<{ success: true }> => {

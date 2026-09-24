@@ -33,7 +33,7 @@ export default function BillDetailsDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="h-dvh w-full max-w-150 p-0 sm:w-150"
+        className="h-full w-full max-w-150 p-0 sm:w-150 [&>button]:hidden"
         aria-describedby={undefined}
       >
         <BillDetailsContent billId={billId} />

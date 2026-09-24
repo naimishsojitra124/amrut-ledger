@@ -13,6 +13,7 @@ import {
   STANDARD_QUERY_BEHAVIOR,
 } from "./utils/query-config";
 import { apiConnector } from "@/services/utils/apiConnector";
+import { cleanParams } from "./utils/apiConnector";
 
 export type UserRole = "owner" | "manager" | "employee" | "guest";
 
@@ -79,6 +80,8 @@ export interface UserListQuery {
   page?: number;
   limit?: number;
   search?: string;
+  status?: UserStatus;
+  role?: UserRole;
 }
 
 const ROOT_KEY = ["users"] as const;
@@ -88,18 +91,6 @@ const LIST_KEY = [...ROOT_KEY, "list"] as const;
 const STATS_KEY = [...ROOT_KEY, "stats"] as const;
 
 const DETAIL_KEY = [...ROOT_KEY, "detail"] as const;
-
-function cleanParams(params: Record<string, unknown>) {
-  return Object.fromEntries(
-    Object.entries(params).filter(
-      ([, value]) =>
-        value !== undefined &&
-        value !== null &&
-        value !== "" &&
-        !(typeof value === "number" && Number.isNaN(value)),
-    ),
-  );
-}
 
 function normalizeUser(user: UserResponse): UserResponse {
   return {
@@ -119,6 +110,8 @@ function listQueryKey(query: UserListQuery = {}) {
       page: query.page ?? 1,
       limit: query.limit ?? 10,
       search: query.search?.trim() ?? "",
+      status: query.status ?? null,
+      role: query.role ?? null,
     },
   ] as const;
 }
@@ -215,6 +208,8 @@ async function fetchUsers(
       page: query.page,
       limit: query.limit,
       search: query.search?.trim(),
+      status: query.status,
+      role: query.role,
     }),
     signal,
   );
@@ -261,6 +256,8 @@ export function useUsersQuery(query: UserListQuery = {}) {
     page: query.page ?? 1,
     limit: query.limit ?? 10,
     search: query.search?.trim() ?? "",
+    status: query.status,
+    role: query.role,
   };
 
   return useQuery({

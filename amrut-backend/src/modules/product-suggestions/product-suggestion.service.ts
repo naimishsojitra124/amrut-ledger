@@ -11,6 +11,9 @@ import type {
   UpdateProductSuggestionRequest,
 } from "./product-suggestion.types";
 import { searchTerm } from "@/app/db/search";
+import { createHttpError } from "@/app/http-error";
+import type { TransactionClient } from "@/app/db/transaction";
+import { getPrisma } from "@/app/db/prisma";
 
 interface ProductSuggestionRecord {
   id: string;
@@ -34,21 +37,6 @@ interface ReorderItem {
   createdAt: Date;
 }
 
-interface ProductSuggestionError extends Error {
-  statusCode: number;
-}
-
-type TransactionClient = Prisma.TransactionClient;
-
-function createHttpError(statusCode: number, message: string): ProductSuggestionError {
-  const error = new Error(message) as ProductSuggestionError;
-  error.statusCode = statusCode;
-  return error;
-}
-
-function getPrisma(app: FastifyInstance): PrismaClient {
-  return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
-}
 
 function normalizeProductSuggestion(
   productSuggestion: ProductSuggestionRecord,
@@ -131,7 +119,7 @@ export async function createProductSuggestion(
 
   const desiredOrder = input.displayOrder ?? (await getNextDisplayOrder(prisma));
 
-  const productSuggestion = await prisma.$transaction(async (tx) => {
+  const productSuggestion = await prisma.$transaction(async (tx: TransactionClient) => {
     await shiftOrdersUp(tx, desiredOrder);
 
     return tx.productSuggestion.create({
@@ -155,7 +143,10 @@ export async function getProductSuggestions(
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
   const skip = (page - 1) * limit;
-  const where = buildSearchWhere(searchTerm(query.search)) ?? {};
+  const where = {
+    ...(buildSearchWhere(searchTerm(query.search)) ?? {}),
+    ...(query.status ? { status: query.status } : {}),
+  };
 
   const [totalItems, items] = await Promise.all([
     prisma.productSuggestion.count({ where }),
@@ -232,7 +223,7 @@ export async function updateProductSuggestion(
   const hasOrderChange =
     input.displayOrder !== undefined && input.displayOrder !== existing.displayOrder;
 
-  const updatedProductSuggestion = await prisma.$transaction(async (tx) => {
+  const updatedProductSuggestion = await prisma.$transaction(async (tx: TransactionClient) => {
     if (hasOrderChange) {
       const targetOrder = input.displayOrder!;
 

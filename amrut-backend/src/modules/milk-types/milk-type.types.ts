@@ -10,7 +10,7 @@ export interface MilkTypeResponse {
   updatedAt: Date;
 }
 
-export interface MilkTypeListItemResponse extends MilkTypeResponse {}
+interface MilkTypeListItemResponse extends MilkTypeResponse {}
 
 export interface PageInfo {
   page: number;
@@ -42,8 +42,7 @@ export interface MilkTypeListQuery {
   page?: number;
   limit?: number;
   search?: string | undefined;
+  status?: "active" | "inactive" | undefined;
 }
 
-export interface MilkTypeIdParams {
-  id: string;
-}
+

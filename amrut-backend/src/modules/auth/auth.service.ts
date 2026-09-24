@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import jwt from "jsonwebtoken";
 import type { FastifyInstance } from "fastify";
 import { env } from "@/config/env";
@@ -14,14 +14,20 @@ import type {
   RefreshResponse,
   LoginResponse,
 } from "./auth.types";
+import { createHttpError } from "@/app/http-error";
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
 
-function createHttpError(statusCode: number, message: string) {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = statusCode;
-  return error;
+// A replaced refresh token keeps working for this long. Two tabs reloading together
+// both send the cookie they had, and the slower one must not lose its session.
+const ROTATION_GRACE_MS = 60_000;
+
+// Every user-visible refusal reads the same, so a signed-out visitor learns nothing about
+// which check failed, while the log records exactly which one did.
+function refusal(app: FastifyInstance, reason: string, userId: string | null) {
+  app.log.info({ reason, userId, scope: "auth.refresh" }, "refresh refused");
+  return createHttpError(401, "Your session has expired. Please sign in again.");
 }
 
 function prismaOf(app: FastifyInstance) {
@@ -138,16 +144,43 @@ function verifyRefreshToken(refreshToken: string): JwtSessionPayload {
   };
 }
 
-async function hashRefreshToken(refreshToken: string) {
-  return bcrypt.hash(refreshToken, env.bcryptSaltRounds);
+function hashRefreshToken(refreshToken: string): string {
+  return createHash("sha256").update(refreshToken).digest("hex");
+}
+
+const SHA256_HEX = /^[a-f0-9]{64}$/;
+
+function hashesMatch(refreshToken: string, storedHash: string | null | undefined): boolean {
+  if (!storedHash || !SHA256_HEX.test(storedHash)) return false;
+
+  const presented = Buffer.from(hashRefreshToken(refreshToken), "hex");
+  const stored = Buffer.from(storedHash, "hex");
+
+  return presented.length === stored.length && timingSafeEqual(presented, stored);
 }
 
 async function comparePassword(password: string, passwordHash: string) {
   return bcrypt.compare(password, passwordHash);
 }
 
-async function compareRefreshToken(refreshToken: string, refreshTokenHash: string) {
-  return bcrypt.compare(refreshToken, refreshTokenHash);
+// Sessions created before the switch still hold a bcrypt hash. They are accepted once and
+// rewritten as SHA-256 on that refresh, so nobody is signed out by the deployment itself.
+async function refreshTokenMatches(
+  refreshToken: string,
+  session: { refreshTokenHash: string; previousRefreshTokenHash?: string | null; previousHashExpiresAt?: Date | null },
+): Promise<boolean> {
+  if (hashesMatch(refreshToken, session.refreshTokenHash)) return true;
+
+  const graceOpen =
+    session.previousHashExpiresAt instanceof Date && session.previousHashExpiresAt > new Date();
+
+  if (graceOpen && hashesMatch(refreshToken, session.previousRefreshTokenHash)) return true;
+
+  if (session.refreshTokenHash.startsWith("$2")) {
+    return bcrypt.compare(refreshToken, session.refreshTokenHash);
+  }
+
+  return false;
 }
 
 export async function login(
@@ -201,7 +234,7 @@ export async function login(
   const accessToken = signAccessToken(app, user);
   const sessionId = randomUUID();
   const refreshToken = signRefreshToken(user, sessionId);
-  const refreshTokenHash = await hashRefreshToken(refreshToken);
+  const refreshTokenHash = hashRefreshToken(refreshToken);
   const expiresAt = new Date(
     Date.now() + parseDurationToSeconds(env.jwtRefreshExpiresIn.toString()) * 1000,
   );
@@ -271,11 +304,11 @@ export async function refreshSession(
   try {
     payload = verifyRefreshToken(refreshToken);
   } catch {
-    throw createHttpError(401, "Invalid refresh token");
+    throw refusal(app, "refresh_token_signature_invalid_or_expired", null);
   }
 
   if (payload.tokenType !== "refresh") {
-    throw createHttpError(401, "Invalid refresh token");
+    throw refusal(app, "not_a_refresh_token", payload.sub);
   }
 
   const user = await prisma.user.findUnique({
@@ -283,7 +316,7 @@ export async function refreshSession(
   });
 
   if (!user) {
-    throw createHttpError(401, "Unauthorized");
+    throw refusal(app, "user_not_found", payload.sub);
   }
 
   if (user.status === "inactive") {
@@ -291,27 +324,30 @@ export async function refreshSession(
   }
 
   const session = await prisma.authSession.findUnique({ where: { sessionId: payload.sid } });
-  if (
-    !session ||
-    session.userId !== user.id ||
-    session.revokedAt ||
-    session.expiresAt <= new Date()
-  )
-    throw createHttpError(401, "Session expired");
 
-  const tokenMatches = await compareRefreshToken(refreshToken, session.refreshTokenHash);
+  // Named reasons, because "logged out again" is impossible to diagnose from a bare 401.
+  if (!session) throw refusal(app, "session_not_found", payload.sub);
+  if (session.userId !== user.id) throw refusal(app, "session_user_mismatch", payload.sub);
+  if (session.revokedAt) throw refusal(app, "session_revoked", payload.sub);
+  if (session.expiresAt <= new Date()) throw refusal(app, "session_expired", payload.sub);
 
-  if (!tokenMatches) {
-    throw createHttpError(401, "Session expired");
+  if (!(await refreshTokenMatches(refreshToken, session))) {
+    throw refusal(app, "token_does_not_match_session", payload.sub);
   }
 
   const accessToken = signAccessToken(app, user);
   const nextRefreshToken = signRefreshToken(user, session.sessionId);
-  const nextRefreshTokenHash = await hashRefreshToken(nextRefreshToken);
+  const nextRefreshTokenHash = hashRefreshToken(nextRefreshToken);
 
   await prisma.authSession.update({
     where: { id: session.id },
-    data: { refreshTokenHash: nextRefreshTokenHash, lastUsedAt: new Date() },
+    data: {
+      refreshTokenHash: nextRefreshTokenHash,
+      // The token just replaced stays usable briefly, so a second tab mid-reload survives.
+      previousRefreshTokenHash: session.refreshTokenHash,
+      previousHashExpiresAt: new Date(Date.now() + ROTATION_GRACE_MS),
+      lastUsedAt: new Date(),
+    },
   });
 
   return {
@@ -350,7 +386,7 @@ export async function logoutSession(
           where: { sessionId: candidate },
         });
 
-        if (session && (await compareRefreshToken(input.refreshToken, session.refreshTokenHash))) {
+        if (session && (await refreshTokenMatches(input.refreshToken, session))) {
           sessionId = candidate;
         }
       }
@@ -358,23 +394,19 @@ export async function logoutSession(
   }
 
   if (sessionId) {
+    // No revokedAt filter: the write is idempotent, and filtering on it matched nothing
+    // on rows where the field was never written, which left logout revoking nothing.
     await prisma.authSession.updateMany({
-      where: { sessionId, revokedAt: null },
+      where: { sessionId },
       data: { revokedAt: new Date() },
     });
 
     return { success: true };
   }
 
-  // No usable refresh token. If the caller still holds a valid access token we
-  // revoke every session they have, so a stale cookie cannot leave one behind.
-  if (input.userId) {
-    await prisma.authSession.updateMany({
-      where: { userId: input.userId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
-  }
-
+  // Without the cookie there is no proof of which session is ending. Signing out every
+  // device the account has would take the whole shop offline because one phone lost a
+  // cookie, so this signs out nothing and lets the unusable token expire on its own.
   return { success: true };
 }
 

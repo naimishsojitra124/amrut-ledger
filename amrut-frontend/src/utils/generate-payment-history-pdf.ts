@@ -2,6 +2,8 @@ import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 
 import type { CustomerPaymentItemResponse } from "@/types/customer";
+import { formatRupees } from "@/utils/format-currency";
+import { BUSINESS_DETAILS } from "@/config/business";
 
 const PAGE_WIDTH = 210;
 const PAGE_HEIGHT = 297;
@@ -34,10 +36,6 @@ type GeneratePaymentHistoryPdfOptions = {
     totalPayments: number;
   };
 };
-
-function formatCurrency(value: number): string {
-  return `Rs. ${Number(value || 0).toFixed(2)}`;
-}
 
 function formatDateTime(value: string): string {
   const date = new Date(value);
@@ -73,7 +71,7 @@ function addFooter(doc: jsPDF) {
 
     doc.setTextColor(120, 120, 120);
 
-    doc.text("Amrut Dairy Farm", MARGIN_LEFT, y);
+    doc.text(BUSINESS_DETAILS.name, MARGIN_LEFT, y);
 
     doc.text(`Page ${page} of ${pageCount}`, PAGE_WIDTH - MARGIN_RIGHT, y, {
       align: "right",
@@ -212,10 +210,10 @@ export function generatePaymentHistoryPdf({
     body: [
       [
         String(payments.length),
-        formatCurrency(
+        formatRupees(
           payments.reduce((sum, payment) => sum + payment.creditedAmount, 0),
         ),
-        formatCurrency(summary.outstanding),
+        formatRupees(summary.outstanding),
       ],
     ],
 
@@ -295,7 +293,7 @@ export function generatePaymentHistoryPdf({
           year: "numeric",
         })}`,
 
-        formatCurrency(payment.creditedAmount),
+        formatRupees(payment.creditedAmount),
 
         payment.paymentMethod.toUpperCase(),
 

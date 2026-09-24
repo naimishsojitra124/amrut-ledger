@@ -1,7 +1,15 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { authAPI, type AuthUser } from "@/services/auth.service";
-import { getApiErrorMessage, tokenStorage } from "@/services/utils/apiConnector";
+import {
+  getApiErrorMessage,
+  isAuthRefusal,
+  tokenStorage,
+} from "@/services/utils/apiConnector";
+
+// A cold Render instance can take the best part of a minute to answer its first request.
+const BOOTSTRAP_ATTEMPTS = 3;
+const BOOTSTRAP_RETRY_MS = 1_500;
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -69,26 +77,49 @@ export const useAuthStore = create<AuthState>()(
       setLoading: (isLoading) => set({ isLoading }),
 
       initializeAuth: async () => {
-        try {
-          // The refresh cookie is the only persistent credential.
-          const refreshed = await authAPI.refresh();
-          tokenStorage.set(refreshed.accessToken);
+        // The refresh cookie is the only credential that survives a reload, so this
+        // call decides whether the page comes back signed in.
+        for (let attempt = 1; attempt <= BOOTSTRAP_ATTEMPTS; attempt += 1) {
+          try {
+            const refreshed = await authAPI.refresh();
+            tokenStorage.set(refreshed.accessToken);
 
-          set({
-            isAuthenticated: true,
-            user: refreshed.user,
-            token: refreshed.accessToken,
-            isLoading: false,
-          });
-        } catch {
-          tokenStorage.clear();
-          set({
-            isAuthenticated: false,
-            user: null,
-            token: null,
-            isLoading: false,
-          });
+            set({
+              isAuthenticated: true,
+              user: refreshed.user,
+              token: refreshed.accessToken,
+              isLoading: false,
+            });
+
+            return;
+          } catch (error) {
+            // The server looked at the credential and said no. That is a real sign-out.
+            if (isAuthRefusal(error)) {
+              tokenStorage.clear();
+              set({
+                isAuthenticated: false,
+                user: null,
+                token: null,
+                isLoading: false,
+              });
+
+              return;
+            }
+
+            // Anything else means the answer never arrived: a sleeping free-tier
+            // backend, a slow phone, a dropped connection. Treating that as a sign-out
+            // is what makes a perfectly good session disappear on reload.
+            if (attempt < BOOTSTRAP_ATTEMPTS) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, BOOTSTRAP_RETRY_MS * attempt),
+              );
+            }
+          }
         }
+
+        // Out of attempts, still no answer. The session is left as the last visit saw
+        // it; the next request that succeeds will refresh the token normally.
+        set({ isLoading: false });
       },
     }),
     {

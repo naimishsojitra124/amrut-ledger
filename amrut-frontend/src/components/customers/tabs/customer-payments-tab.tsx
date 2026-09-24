@@ -28,6 +28,8 @@ import type { CustomerPaymentItemResponse } from "@/types/customer";
 import { useModalStore } from "@/store/modal.store";
 import { formatCurrency } from "@/utils/format-currency";
 import { generatePaymentHistoryPdf } from "@/utils/generate-payment-history-pdf";
+import { getApiErrorMessage as getErrorMessage } from "@/services/utils/apiConnector";
+import { BUSINESS_DETAILS } from "@/config/business";
 
 type Props = {
   customerId: string;
@@ -53,10 +55,6 @@ const MONTH_FORMATTER = new Intl.DateTimeFormat("en-IN", {
   month: "short",
   year: "numeric",
 });
-
-function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
 
 type PaymentRow = {
   payment: CustomerPaymentItemResponse;
@@ -172,8 +170,8 @@ export default function CustomerPaymentsTab({ customerId, customer }: Props) {
         cardNumber: customer?.cardNumber,
       },
       business: {
-        name: "Amrut Dairy Farm",
-        address: "Gandhigram, 80ft Road, Rajkot, Gujarat",
+        name: BUSINESS_DETAILS.name,
+        address: BUSINESS_DETAILS.address,
       },
       summary: {
         totalBilled: summary.totalBilled,

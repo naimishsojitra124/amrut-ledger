@@ -1,3 +1,4 @@
+import { isRetryable } from "@/services/utils/query-config";
 import axios from "axios";
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -8,12 +9,6 @@ import { paymentQueue } from "@/services/offline-payment-queue.service";
 const MAX_ATTEMPTS = 8;
 
 // A queued payment is money already taken, so only a real rejection may drop it.
-const RETRYABLE_STATUSES = new Set([401, 403, 408, 425, 429, 500, 502, 503, 504]);
-
-function isRetryable(status: number | undefined): boolean {
-  if (status === undefined) return true;
-  return RETRYABLE_STATUSES.has(status) || status >= 500;
-}
 const refresh = (client: ReturnType<typeof useQueryClient>) =>
   client
     .invalidateQueries({ queryKey: ["bills"] })

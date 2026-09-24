@@ -28,7 +28,7 @@ export function formatQuantity(value: number | null | undefined): string {
   return LITRE_FORMATTER.format(value);
 }
 
-export function formatText(value: unknown): string {
+function formatText(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
   return String(value).trim();
@@ -59,14 +59,14 @@ export function collectChanges(changes: AuditChange[]): AuditChange[] {
   return changes.filter((entry) => entry.oldValue !== entry.newValue);
 }
 
-export interface AuditMilkEntry {
+interface AuditMilkEntry {
   milkTypeName?: string | null | undefined;
   litres?: number | null | undefined;
   rate?: number | null | undefined;
   amount?: number | null | undefined;
 }
 
-export interface AuditProductEntry {
+interface AuditProductEntry {
   itemName?: string | null | undefined;
   quantity?: number | null | undefined;
   unitPrice?: number | null | undefined;
@@ -74,13 +74,13 @@ export interface AuditProductEntry {
 }
 
 /** A milk type as it should read in an audit entry. */
-export interface AuditMilkTypeRef {
+interface AuditMilkTypeRef {
   name?: string | null | undefined;
   rate?: number | null | undefined;
 }
 
 /** "2.5 L Buffalo 54 at Rs. 54/L = Rs. 135" */
-export function describeMilkEntry(entry: AuditMilkEntry): string {
+function describeMilkEntry(entry: AuditMilkEntry): string {
   const name = formatText(entry.milkTypeName) || "Milk";
   const parts = [`${formatLitres(entry.litres)} ${name}`.trim()];
 
@@ -91,7 +91,7 @@ export function describeMilkEntry(entry: AuditMilkEntry): string {
 }
 
 /** "2 x Bread at Rs. 40 = Rs. 80" */
-export function describeProductEntry(entry: AuditProductEntry): string {
+function describeProductEntry(entry: AuditProductEntry): string {
   const name = formatText(entry.itemName) || "Item";
   const parts = [`${formatQuantity(entry.quantity)} x ${name}`.trim()];
 
@@ -101,7 +101,7 @@ export function describeProductEntry(entry: AuditProductEntry): string {
   return parts.join(" ");
 }
 
-export interface AuditLedgerEntry {
+interface AuditLedgerEntry {
   milkEntries?: AuditMilkEntry[] | null | undefined;
   productEntries?: AuditProductEntry[] | null | undefined;
   notes?: string | null | undefined;

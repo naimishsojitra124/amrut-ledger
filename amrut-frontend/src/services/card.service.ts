@@ -1,6 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
-import { invalidateCardCollectionChanged } from "./utils/query-invalidation";
 import {
   QUERY_GC_TIMES,
   QUERY_REFETCH_INTERVALS,
@@ -85,8 +84,6 @@ const AVAILABLE_ROOT_KEY = [...ROOT_KEY, "available"] as const;
 const NUMBERING_ROOT_KEY = [...ROOT_KEY, "numbering"] as const;
 
 const HISTORY_ROOT_KEY = [...ROOT_KEY, "history"] as const;
-
-const DETAIL_ROOT_KEY = [...ROOT_KEY, "detail"] as const;
 
 function normalizeAssignment(
   assignment: CardAssignmentSummaryResponse,
@@ -174,10 +171,6 @@ export function useAvailableCardsQuery(options: { enabled?: boolean } = {}) {
   });
 }
 
-export function useCardStatsQuery() {
-  return useCardsQuery();
-}
-
 export function useCardNumberingQuery(options: { enabled?: boolean } = {}) {
   return useQuery<CardNumberingResponse>({
     queryKey: NUMBERING_ROOT_KEY,
@@ -197,30 +190,6 @@ export function useCardNumberingQuery(options: { enabled?: boolean } = {}) {
 
     enabled: options.enabled ?? true,
     staleTime: QUERY_STALE_TIMES.cardNumbering,
-    gcTime: QUERY_GC_TIMES.standard,
-    ...STANDARD_QUERY_BEHAVIOR,
-  });
-}
-
-export function useCardQuery(id: string | null | undefined) {
-  return useQuery({
-    queryKey: [...DETAIL_ROOT_KEY, id ?? ""] as const,
-
-    queryFn: async ({ signal }) => {
-      const response = await apiConnector<CardResponse>(
-        "GET",
-        `/cards/${id}`,
-        undefined,
-        undefined,
-        undefined,
-        signal,
-      );
-
-      return normalizeCard(response.data);
-    },
-
-    enabled: Boolean(id),
-    staleTime: QUERY_STALE_TIMES.cardDetail,
     gcTime: QUERY_GC_TIMES.standard,
     ...STANDARD_QUERY_BEHAVIOR,
   });
@@ -247,23 +216,5 @@ export function useCardHistoryQuery(id: string | null | undefined) {
     staleTime: QUERY_STALE_TIMES.cardHistory,
     gcTime: QUERY_GC_TIMES.long,
     ...STANDARD_QUERY_BEHAVIOR,
-  });
-}
-
-export function useCreateCardMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (payload: CreateCardRequest) => {
-      const response = await apiConnector<CardResponse>("POST", "/cards", {
-        body: payload,
-      });
-
-      return normalizeCard(response.data);
-    },
-
-    onSuccess: async () => {
-      await invalidateCardCollectionChanged(queryClient);
-    },
   });
 }

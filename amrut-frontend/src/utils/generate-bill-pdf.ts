@@ -6,6 +6,8 @@ import type {
 } from "@/types/customer";
 
 import type { BillResponse } from "@/types/bill";
+import { formatRupees } from "@/utils/format-currency";
+import { BUSINESS_DETAILS } from "@/config/business";
 
 // const PRIMARY = "#266699";
 
@@ -42,10 +44,6 @@ type GenerateBillPdfOptions = {
 };
 
 // Whole rupees, so the printed bill matches the figures on screen.
-function formatCurrency(value: number): string {
-  return `Rs. ${Math.round(Number(value) || 0).toLocaleString("en-IN")}`;
-}
-
 function formatDate(
   value: string | Date,
 ): string {
@@ -162,7 +160,7 @@ function getDailyHistoryRows(
             milk.milkTypeName ??
             "Milk";
 
-          milkLines.push(`${milkName}\n${litres.toFixed(2)} L × ${formatCurrency(milk.rate ?? 0)}/L\n${formatCurrency(amount)}`);
+          milkLines.push(`${milkName}\n${litres.toFixed(2)} L × ${formatRupees(milk.rate ?? 0)}/L\n${formatRupees(amount)}`);
         }
 
         for (const product of entry.productEntries ?? []) {
@@ -175,7 +173,7 @@ function getDailyHistoryRows(
 
           productTotal += amount;
 
-          productLines.push(`${product.itemName}\n${quantity} Qty × ${formatCurrency(product.unitPrice)}\n${formatCurrency(amount)}`);
+          productLines.push(`${product.itemName}\n${quantity} Qty × ${formatRupees(product.unitPrice)}\n${formatRupees(amount)}`);
         }
       }
 
@@ -236,7 +234,7 @@ function addFooter(
     );
 
     doc.text(
-      "Amrut Dairy Farm",
+      BUSINESS_DETAILS.name,
       MARGIN_LEFT,
       y,
     );
@@ -526,10 +524,10 @@ export function generateBillPdf({
         2,
       )} Ltr × ${
         milk.milkTypeName
-      } @ ${formatCurrency(
+      } @ ${formatRupees(
         milk.rate,
       )}/Ltr`,
-      formatCurrency(
+      formatRupees(
         milk.amount,
       ),
     ]);
@@ -537,7 +535,7 @@ export function generateBillPdf({
 
   summaryBody.push([
     "Other Items Total",
-    formatCurrency(
+    formatRupees(
       bill.otherItemsTotal,
     ),
   ]);
@@ -545,7 +543,7 @@ export function generateBillPdf({
   if (bill.previousDue > 0) {
     summaryBody.push([
       "Previous Due",
-      formatCurrency(
+      formatRupees(
         bill.previousDue,
       ),
     ]);
@@ -553,21 +551,21 @@ export function generateBillPdf({
 
   summaryBody.push([
     "Grand Total",
-    formatCurrency(
+    formatRupees(
       bill.grandTotal,
     ),
   ]);
 
   summaryBody.push([
     "Total Paid",
-    formatCurrency(
+    formatRupees(
       bill.totalPaid,
     ),
   ]);
 
   summaryBody.push([
     "Outstanding",
-    formatCurrency(
+    formatRupees(
       bill.outstandingAmount,
     ),
   ]);
@@ -760,7 +758,7 @@ export function generateBillPdf({
           `${row.date}\n${row.day}`,
           row.milk,
           row.products,
-          formatCurrency(
+          formatRupees(
             row.total,
           ),
         ],

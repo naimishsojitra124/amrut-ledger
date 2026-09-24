@@ -8,16 +8,8 @@ import type {
   UpdateMilkTypeRequest,
 } from "./milk-type.types";
 import { searchTerm } from "@/app/db/search";
-
-function createHttpError(statusCode: number, message: string) {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = statusCode;
-  return error;
-}
-
-function getPrisma(app: FastifyInstance) {
-  return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
-}
+import { createHttpError } from "@/app/http-error";
+import { getPrisma } from "@/app/db/prisma";
 
 function normalizeMilkType(milkType: {
   id: string;
@@ -106,6 +98,7 @@ export async function getMilkTypes(
 
   const where = {
     ...(searchWhere ?? {}),
+    ...(query.status ? { status: query.status } : {}),
   };
 
   const [totalItems, items] = await Promise.all([

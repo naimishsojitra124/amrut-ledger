@@ -22,7 +22,7 @@ const movementSchema = z.object({
   createdAt: z.string().datetime().optional(),
 });
 
-export const functionOrderItemSchema = z
+const functionOrderItemSchema = z
   .object({
     id: z.string().min(1).optional(),
 
@@ -46,7 +46,7 @@ export const functionOrderItemSchema = z
     path: ["returnedQuantity"],
   });
 
-export const functionOrderDaySchema = z.object({
+const functionOrderDaySchema = z.object({
   deliveryDate: dateSchema,
 
   deliveryTime: z.string().trim().max(30).default(""),
@@ -95,4 +95,9 @@ export const functionOrderListQuerySchema = z.object({
   status: functionOrderStatusSchema.optional(),
 
   search: z.string().trim().max(120).optional(),
+});
+
+export const functionOrderReminderQuerySchema = z.object({
+  // Defaults to FUNCTION_REMINDER_DAYS_AHEAD when the caller does not narrow it.
+  daysAhead: z.coerce.number().int().min(1).max(14).optional(),
 });

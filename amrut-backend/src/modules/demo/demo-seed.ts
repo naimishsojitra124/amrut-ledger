@@ -67,13 +67,13 @@ export async function createDemoAccount(
 
 const CHUNK_SIZE = 200;
 
-export interface SeedOptions {
+interface SeedOptions {
   prisma: PrismaClient;
   password: string;
   log?: (message: string) => void;
 }
 
-export interface SeedSummary {
+interface SeedSummary {
   users: number;
   milkTypes: number;
   products: number;

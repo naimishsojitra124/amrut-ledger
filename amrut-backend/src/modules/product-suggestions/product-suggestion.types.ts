@@ -39,16 +39,12 @@ export interface UpdateProductSuggestionRequest {
   displayOrder?: number | undefined;
 }
 
-export interface ReorderProductSuggestionsRequest {
-  orderedIds: string[];
-}
+
 
 export interface ProductSuggestionListQuery {
   page?: number;
   limit?: number;
   search?: string | undefined;
+  status?: "active" | "inactive" | undefined;
 }
 
-export interface ProductSuggestionIdParams {
-  id: string;
-}

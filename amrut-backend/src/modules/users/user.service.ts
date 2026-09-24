@@ -16,16 +16,9 @@ import { env } from "@/config/env";
 import { assertCanActOnUser, assertNotDemoAccount } from "@/app/middleware/authorize";
 import type { UserRole } from "../../../generated/prisma/enums";
 import { searchTerm } from "@/app/db/search";
-
-function createHttpError(statusCode: number, message: string) {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = statusCode;
-  return error;
-}
-
-function getPrisma(app: FastifyInstance) {
-  return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
-}
+import { createHttpError } from "@/app/http-error";
+import { getPrisma } from "@/app/db/prisma";
+import { buildPageInfo } from "@/app/db/pagination";
 
 function normalizeUser(user: {
   id: string;
@@ -48,19 +41,6 @@ function normalizeUser(user: {
     lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
-  };
-}
-
-function buildPageInfo(totalItems: number, page: number, limit: number): PageInfo {
-  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
-
-  return {
-    page,
-    limit,
-    totalItems,
-    totalPages,
-    hasNextPage: page < totalPages,
-    hasPreviousPage: page > 1,
   };
 }
 
@@ -149,6 +129,8 @@ export async function getUsers(
 
   const where: any = {
     ...(buildSearchWhere(searchTerm(query.search)) ?? {}),
+    ...(query.status ? { status: query.status } : {}),
+    ...(query.role ? { role: query.role } : {}),
   };
 
   const [totalItems, items] = await Promise.all([

@@ -31,6 +31,8 @@ import type {
   AuditLogType,
   CustomerAuditLogItemResponse,
 } from "@/types/customer";
+import { getApiErrorMessage as getErrorMessage } from "@/services/utils/apiConnector";
+import { formatCurrency } from "@/utils/format-currency";
 
 type Props = {
   customerId: string;
@@ -194,10 +196,6 @@ const HIDDEN_AUDIT_FIELDS = new Set([
   "productSuggestionId",
 ]);
 
-function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
 function parseAuditValue(value: unknown): unknown {
   if (value === null || value === undefined) {
     return null;
@@ -220,15 +218,10 @@ function parseAuditValue(value: unknown): unknown {
   }
 }
 
+// An audit log holds arbitrary recorded values, so a non-numeric one has to read as blank.
 function formatCurrencyValue(value: unknown) {
   const amount = Number(value);
-
-  return Number.isFinite(amount)
-    ? `₹${amount.toLocaleString("en-IN", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`
-    : "—";
+  return Number.isFinite(amount) ? formatCurrency(amount) : "—";
 }
 
 function formatLitres(value: unknown) {
@@ -758,16 +751,16 @@ export default function CustomerAuditLogsTab({ customerId }: Props) {
           </DropdownMenu>
         </div>
 
-        <div className="hidden border-b bg-[#F6F6F6] lg:block">
-          <div className="grid grid-cols-[120px_150px_minmax(0,1fr)_160px] text-sm font-semibold text-neutral-700">
+        {/* <div className="hidden border-b bg-[#F6F6F6]">
+          <div className="grid grid-cols-4 text-sm font-semibold text-neutral-700">
             <div className="px-4 py-3 text-center">Date &amp; Time</div>
             <div className="border-l px-4 py-3 text-center">Action</div>
             <div className="border-l px-4 py-3 text-center">Details</div>
             <div className="border-l px-4 py-3 text-center">By</div>
           </div>
-        </div>
+        </div> */}
 
-        <div className="max-h-190 overflow-y-auto">
+        <div className="overflow-y-auto hide-scrollbar">
           {isPending ? (
             <div className="flex h-40 items-center justify-center gap-2 text-sm text-neutral-500">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -786,9 +779,9 @@ export default function CustomerAuditLogsTab({ customerId }: Props) {
                 return (
                   <div
                     key={row.log.id}
-                    className="border-b p-3 last:border-b-0 sm:p-4 lg:grid lg:grid-cols-[120px_150px_minmax(0,1fr)_160px] lg:p-0"
+                    className="border-b p-4 last:border-b-0 sm:p-4"
                   >
-                    <div className="flex items-center justify-between gap-3 lg:block lg:px-4 lg:py-4 lg:text-center">
+                    <div className="flex items-center justify-between gap-3 ">
                       <div>
                         <div className="text-[13px] font-semibold text-neutral-700">
                           {row.dateLabel}
@@ -800,7 +793,7 @@ export default function CustomerAuditLogsTab({ customerId }: Props) {
 
                       <div
                         className={cn(
-                          "flex items-center gap-1.5 text-[12px] font-semibold lg:hidden",
+                          "flex items-center gap-1.5 text-[12px] font-semibold ",
                           meta.tone.split(" ")[0],
                         )}
                       >
@@ -809,7 +802,7 @@ export default function CustomerAuditLogsTab({ customerId }: Props) {
                       </div>
                     </div>
 
-                    <div className="hidden border-l px-4 py-4 lg:block">
+                    {/* <div className="hidden border-l px-4 py-4">
                       <div
                         className={cn(
                           "flex items-center justify-center gap-2 text-[13px] font-semibold leading-5",
@@ -819,14 +812,14 @@ export default function CustomerAuditLogsTab({ customerId }: Props) {
                         <Icon className="h-3.5 w-3.5" />
                         {meta.label}
                       </div>
-                    </div>
+                    </div> */}
 
-                    <div className="mt-3 min-w-0 lg:mt-0 lg:border-l lg:px-4 lg:py-4">
+                    <div className="mt-3 min-w-0 ">
                       <div className="min-w-0">{renderDetails(row.log)}</div>
                     </div>
 
-                    <div className="mt-3 flex items-center gap-2 border-t pt-3 lg:mt-0 lg:block lg:border-l lg:border-t-0 lg:px-4 lg:py-4 lg:text-center">
-                      <span className="text-xs text-neutral-500 lg:hidden">
+                    <div className="mt-3 flex items-center gap-2 border-t pt-3 ">
+                      <span className="text-xs text-neutral-500">
                         By
                       </span>
 

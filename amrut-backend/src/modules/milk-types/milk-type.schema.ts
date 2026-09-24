@@ -8,6 +8,9 @@ export const milkTypeListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().trim().min(1).max(80).optional(),
+  // Zod strips what it does not declare, so an undeclared filter is dropped silently
+  // rather than rejected, and the list comes back unfiltered.
+  status: z.enum(["active", "inactive"]).optional(),
 });
 
 // Rates are whole rupees per litre, matching how money is stored everywhere.

@@ -186,6 +186,14 @@ axiosInstance.interceptors.request.use(
 
 type RetriableConfig = InternalAxiosRequestConfig & { _retriedAfterRefresh?: boolean };
 
+// The server refused the credential, as opposed to never having been reached.
+export function isAuthRefusal(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+
+  const status = error.response?.status;
+  return status === 401 || status === 403;
+}
+
 let refreshPromise: Promise<string> | null = null;
 
 function isAuthEndpoint(url: string): boolean {
@@ -261,10 +269,14 @@ axiosInstance.interceptors.response.use(
       const nextToken = await refreshSession();
       config.headers.set("Authorization", `Bearer ${nextToken}`);
       return await axiosInstance.request(config);
-    } catch {
-      // The refresh cookie is gone or rejected — this session is genuinely over.
-      tokenStorage.clear();
-      window.dispatchEvent(new CustomEvent("auth:logout"));
+    } catch (refreshError) {
+      // Signing out now revokes the session on the server, so a dropped connection or a
+      // sleeping backend must not trigger it. Only an outright refusal ends the session.
+      if (isAuthRefusal(refreshError)) {
+        tokenStorage.clear();
+        window.dispatchEvent(new CustomEvent("auth:logout"));
+      }
+
       return Promise.reject(error);
     }
   },
@@ -279,6 +291,7 @@ export const apiConnector = async <T>(
   headers?: AxiosRequestHeaders,
   params?: Record<string, unknown>,
   signal?: AbortSignal, // Accept the caller's signal directly — no wrapper needed
+  options?: { timeout?: number },
 ): Promise<AxiosResponse<T>> => {
   return axiosInstance<T>({
     method,
@@ -287,5 +300,20 @@ export const apiConnector = async <T>(
     headers,
     params,
     signal, // Axios handles AbortSignal natively since v0.22
+    ...(options?.timeout === undefined ? {} : { timeout: options.timeout }),
   });
 };
+
+// Axios serialises undefined, null and "" into the query string; dropping them here keeps
+// a cleared filter out of the URL, and out of the React Query key built from it.
+export function cleanParams(params: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(params).filter(
+      ([, value]) =>
+        value !== undefined &&
+        value !== null &&
+        value !== "" &&
+        !(typeof value === "number" && Number.isNaN(value)),
+    ),
+  );
+}

@@ -43,7 +43,7 @@ interface Connection {
   authTimer: NodeJS.Timeout | null;
 }
 
-export interface PublishInput extends RealtimeChange {
+interface PublishInput extends RealtimeChange {
   phase: RealtimePhase;
   requestId: string;
   method: string;

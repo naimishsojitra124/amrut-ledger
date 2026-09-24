@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client";
 import { AUDIT_FIELD, change } from "../audit/audit.util";
-import { TX_OPTIONS } from "@/app/db/transaction";
+import { TX_OPTIONS, type TransactionClient } from "@/app/db/transaction";
 import type {
   AssignCardRequest,
   CardAssignmentSummaryResponse,
@@ -15,16 +15,8 @@ import type {
   UpdateCardRequest,
 } from "./card.types";
 import { searchTerm } from "@/app/db/search";
-
-function createHttpError(statusCode: number, message: string) {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = statusCode;
-  return error;
-}
-
-function getPrisma(app: FastifyInstance) {
-  return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
-}
+import { createHttpError } from "@/app/http-error";
+import { getPrisma } from "@/app/db/prisma";
 
 export function normalizeAssignment(assignment: any): CardAssignmentSummaryResponse {
   return {
@@ -421,7 +413,7 @@ export async function assignCardToCustomer(
   const assignedAt = input.assignedAt ?? new Date();
   const depositAtAssignment = input.depositAtAssignment ?? 0;
 
-  const result = await prisma.$transaction(async (tx: PrismaClient) => {
+  const result = await prisma.$transaction(async (tx: TransactionClient) => {
     let previousCardNumber: number | null = null;
 
     if (activeAssignmentForCustomer) {
@@ -527,7 +519,7 @@ export async function makeCardAvailable(
 
   const now = new Date();
 
-  const updated = await prisma.$transaction(async (tx: PrismaClient) => {
+  const updated = await prisma.$transaction(async (tx: TransactionClient) => {
     await tx.cardAssignment.update({
       where: { id: activeAssignment.id },
       data: {

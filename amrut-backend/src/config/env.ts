@@ -34,6 +34,11 @@ const config = z
     DB_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(20_000),
     DB_TRANSACTION_MAX_WAIT_MS: z.coerce.number().int().min(2_000).max(60_000).default(10_000),
 
+    // Ahead-of-time warning for catering orders, so the kitchen can prepare the items.
+    FUNCTION_REMINDER_ENABLED: z.enum(["true", "false"]).default("true"),
+    FUNCTION_REMINDER_DAYS_AHEAD: z.coerce.number().int().min(1).max(14).default(2),
+    FUNCTION_REMINDER_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(1440).default(60),
+
     // Must point at its own database: the reset job deletes every collection it can reach.
     DEMO_MODE: z.enum(["true", "false"]).default("false"),
 
@@ -79,6 +84,10 @@ export const env = {
 
   dbTransactionTimeoutMs: parsed.DB_TRANSACTION_TIMEOUT_MS,
   dbTransactionMaxWaitMs: parsed.DB_TRANSACTION_MAX_WAIT_MS,
+
+  functionReminderEnabled: parsed.FUNCTION_REMINDER_ENABLED === "true",
+  functionReminderDaysAhead: parsed.FUNCTION_REMINDER_DAYS_AHEAD,
+  functionReminderIntervalMinutes: parsed.FUNCTION_REMINDER_INTERVAL_MINUTES,
 
   demoMode: parsed.DEMO_MODE === "true",
   demoGuestPassword: parsed.DEMO_GUEST_PASSWORD,

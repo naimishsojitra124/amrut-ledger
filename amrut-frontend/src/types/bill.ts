@@ -241,4 +241,6 @@ export interface CreatePaymentRequest {
   paymentMethod: "cash" | "upi";
   referenceNumber?: string;
   notes?: string;
+  /** yyyy-mm-dd the payment was received; today when omitted. */
+  receivedAt?: string;
 }

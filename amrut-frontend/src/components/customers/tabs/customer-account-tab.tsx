@@ -12,12 +12,9 @@ import { formatCurrency } from "@/utils/format-currency";
 import OpeningBalanceCard from "@/components/customers/opening-balance-card";
 import { usePermissions } from "@/hooks/use-permissions";
 import { PERMISSIONS } from "@/config/permissions";
+import { getApiErrorMessage as getErrorMessage } from "@/services/utils/apiConnector";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB");
-
-function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
 
 export default function CustomerAccountTab({
   customerId,

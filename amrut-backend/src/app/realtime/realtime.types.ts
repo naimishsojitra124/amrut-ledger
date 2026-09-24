@@ -104,8 +104,3 @@ export type RealtimeServerFrame =
   | { kind: "ready"; connectionId: string; at: string }
   | { kind: "error"; code: string; message: string };
 
-export interface RealtimeAuthFrame {
-  type: "auth";
-  token: string;
-  clientId?: string | undefined;
-}

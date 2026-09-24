@@ -5,10 +5,8 @@ import {
   formatFunctionOrderQuantity,
   summariseFunctionOrderItem,
 } from "@/utils/function-order";
-
-function formatAmount(amount: number): string {
-  return `${amount < 0 ? "-" : ""}Rs ${Math.abs(amount).toFixed(2)}`;
-}
+import { formatRupees } from "@/utils/format-currency";
+import { BUSINESS_DETAILS } from "@/config/business";
 
 export function generateFunctionOrderPdf(order: FunctionOrder) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
@@ -16,7 +14,7 @@ export function generateFunctionOrderPdf(order: FunctionOrder) {
   doc.setTextColor(38, 102, 153);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
-  doc.text("Amrut Dairy Farm", 105, y, { align: "center" });
+  doc.text(BUSINESS_DETAILS.name, 105, y, { align: "center" });
   y += 8;
   doc.setTextColor(80, 80, 80);
   doc.setFont("helvetica", "normal");
@@ -72,8 +70,8 @@ export function generateFunctionOrderPdf(order: FunctionOrder) {
         item.itemName,
         summary.totalLabel,
         summary.quantityLabel,
-        `Rs ${item.unitPrice.toFixed(2)}`,
-        formatAmount(summary.amount),
+        formatRupees(item.unitPrice),
+        formatRupees(summary.amount),
       ]);
 
       total += summary.amount;
@@ -120,7 +118,7 @@ export function generateFunctionOrderPdf(order: FunctionOrder) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(30, 30, 30);
-  doc.text(`Net total: ${formatAmount(total)}`, 196, finalY, {
+  doc.text(`Net total: ${formatRupees(total)}`, 196, finalY, {
     align: "right",
   });
   doc.setFont("helvetica", "normal");

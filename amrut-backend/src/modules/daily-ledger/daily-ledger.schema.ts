@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const businessDateSchema = z
+const businessDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format");
 
@@ -36,12 +36,12 @@ export const dailyLedgerListQuerySchema = z
     },
   );
 
-export const dailyLedgerMilkEntrySchema = z.object({
+const dailyLedgerMilkEntrySchema = z.object({
   milkTypeId: z.string().min(1, "Milk type id is required"),
   litres: z.coerce.number().positive("Litres must be greater than 0"),
 });
 
-export const dailyLedgerProductEntrySchema = z.object({
+const dailyLedgerProductEntrySchema = z.object({
   productSuggestionId: z.string().min(1).optional().nullable(),
   itemName: z.string().trim().min(1, "Item name is required").max(100),
   quantity: z.coerce.number().int().positive("Quantity must be greater than 0"),

@@ -20,6 +20,7 @@ import type { Customer } from "@/types/customer";
 import type { DailyLedgerResponse } from "@/services/daily-ledger.service";
 
 import { formatCurrency } from "@/utils/format-currency";
+import { getInitials } from "@/lib/utils";
 
 type QuickEntryCustomerCardProps = {
   cardNumber: string;
@@ -31,19 +32,6 @@ type QuickEntryCustomerCardProps = {
   customer: Customer | null;
   ledger?: DailyLedgerResponse | null;
 };
-
-function getInitials(fullName: string) {
-  return (
-    fullName
-      .trim()
-      .split(/\s+/)
-      .map((part) => part[0])
-      .filter(Boolean)
-      .slice(0, 2)
-      .join("")
-      .toUpperCase() || "C"
-  );
-}
 
 export default function QuickEntryCustomerCard({
   cardNumber,
@@ -157,7 +145,7 @@ export default function QuickEntryCustomerCard({
             <div className="flex min-w-0 items-start gap-3">
               <Avatar className="h-16 w-16 shrink-0 sm:h-20 sm:w-20">
                 <AvatarFallback className="bg-neutral-300 text-lg font-semibold text-white sm:text-xl">
-                  {getInitials(customer.fullName)}
+                  {getInitials(customer.fullName) || "C"}
                 </AvatarFallback>
               </Avatar>
 

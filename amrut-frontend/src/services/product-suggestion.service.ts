@@ -12,7 +12,7 @@ import {
   QUERY_STALE_TIMES,
   STANDARD_QUERY_BEHAVIOR,
 } from "./utils/query-config";
-import { apiConnector } from "./utils/apiConnector";
+import { apiConnector, cleanParams } from "./utils/apiConnector";
 
 export type ProductSuggestionStatus = "active" | "inactive";
 
@@ -51,6 +51,7 @@ export interface ProductSuggestionListQuery {
   page?: number;
   limit?: number;
   search?: string;
+  status?: ProductSuggestionStatus;
 }
 
 export interface CreateProductSuggestionRequest {
@@ -73,18 +74,6 @@ const LIST_KEY = [...ROOT_KEY, "list"] as const;
 
 const ACTIVE_KEY = [...ROOT_KEY, "active"] as const;
 
-function cleanParams(params: Record<string, unknown>) {
-  return Object.fromEntries(
-    Object.entries(params).filter(
-      ([, value]) =>
-        value !== undefined &&
-        value !== null &&
-        value !== "" &&
-        !(typeof value === "number" && Number.isNaN(value)),
-    ),
-  );
-}
-
 function listQueryKey(query: ProductSuggestionListQuery = {}) {
   return [
     ...LIST_KEY,
@@ -92,11 +81,12 @@ function listQueryKey(query: ProductSuggestionListQuery = {}) {
       page: query.page ?? 1,
       limit: query.limit ?? 10,
       search: query.search?.trim() ?? "",
+      status: query.status ?? null,
     },
   ] as const;
 }
 
-function sortItems(items: ProductSuggestion[]) {
+export function sortByDisplayOrder(items: ProductSuggestion[]) {
   return [...items].sort((a, b) => {
     if (a.displayOrder !== b.displayOrder) {
       return a.displayOrder - b.displayOrder;
@@ -227,6 +217,7 @@ async function fetchProductSuggestions(
       page: query.page,
       limit: query.limit,
       search: query.search?.trim(),
+      status: query.status,
     }),
     signal,
   );
@@ -354,13 +345,13 @@ export function useUpdateProductSuggestionMutation() {
       });
 
       updateListCaches(queryClient, (items) =>
-        sortItems(replaceItem(items, optimisticItem)),
+        sortByDisplayOrder(replaceItem(items, optimisticItem)),
       );
 
       updateActiveCache(queryClient, (items) =>
         optimisticItem.status !== "active"
           ? items.filter((item) => item.id !== optimisticItem.id)
-          : sortItems(upsertItem(items, optimisticItem)),
+          : sortByDisplayOrder(upsertItem(items, optimisticItem)),
       );
 
       return {
@@ -495,11 +486,11 @@ export function useRestoreProductSuggestionMutation() {
       });
 
       updateListCaches(queryClient, (items) =>
-        sortItems(replaceItem(items, optimisticItem)),
+        sortByDisplayOrder(replaceItem(items, optimisticItem)),
       );
 
       updateActiveCache(queryClient, (items) =>
-        sortItems(upsertItem(items, optimisticItem)),
+        sortByDisplayOrder(upsertItem(items, optimisticItem)),
       );
 
       return {

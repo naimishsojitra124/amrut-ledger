@@ -350,7 +350,7 @@ export default function FunctionOrderTable({
           const order = row.original;
 
           return (
-            <div className="flex items-center justify-end gap-1.5 sm:gap-2">
+            <div className="flex items-center justify-center gap-1.5 sm:gap-2">
               <Button
                 type="button"
                 variant="outline"

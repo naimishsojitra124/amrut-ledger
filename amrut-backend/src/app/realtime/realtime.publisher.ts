@@ -176,7 +176,7 @@ const NAME_CACHE_TTL_MS = 5 * 60_000;
 
 const capturedBody = new WeakMap<FastifyRequest, string>();
 
-export function findChangeRule(method: string, routeUrl: string | undefined): ChangeRule | null {
+function findChangeRule(method: string, routeUrl: string | undefined): ChangeRule | null {
   if (!routeUrl) return null;
   return CHANGE_RULES[`${method} ${routeUrl}`] ?? null;
 }
@@ -188,7 +188,7 @@ function readParam(params: unknown, name: string | undefined): string | undefine
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-export function buildChange(rule: ChangeRule, params: unknown): RealtimeChange {
+function buildChange(rule: ChangeRule, params: unknown): RealtimeChange {
   return {
     resource: rule.resource,
     action: rule.action,

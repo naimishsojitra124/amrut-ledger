@@ -214,7 +214,7 @@ export default function BillDetailsContent({
   }
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="flex h-full w-full flex-col bg-white">
       {/* Header */}
       <div className="flex items-start justify-between border-b px-4 py-4">
         <div>

@@ -164,10 +164,3 @@ export function canActOnUser(actorRole: UserRole, targetRole: UserRole): boolean
 // guest is excluded: it belongs to the shared demo account and the API refuses to assign it.
 export const ASSIGNABLE_ROLES = ["owner", "manager", "employee"] as const;
 
-export function isGuestRole(role: UserRole): boolean {
-  return role === "guest";
-}
-
-export function describeRole(role: UserRole): string {
-  return role.charAt(0).toUpperCase() + role.slice(1);
-}

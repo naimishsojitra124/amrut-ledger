@@ -20,7 +20,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useBillsQuery, useBillsSummaryQuery } from "@/services/bill.service";
 import { useCustomerStatsQuery } from "@/services/customer.service";
-import { useFunctionOrdersQuery } from "@/services/function-order.service";
+import {
+  useFunctionOrderRemindersQuery,
+  useFunctionOrdersQuery,
+} from "@/services/function-order.service";
 import {
   useRetrySystemJobMutation,
   useSystemJobsQuery,
@@ -89,6 +92,7 @@ export default function Dashboard() {
 
   const health = useServiceHealthQuery();
   const functionOrders = useFunctionOrdersQuery();
+  const prep = useFunctionOrderRemindersQuery();
   const jobs = useSystemJobsQuery();
   const retryJob = useRetrySystemJobMutation();
 
@@ -105,6 +109,22 @@ export default function Dashboard() {
       )
       .slice(0, 3);
   }, [functionOrders.data?.items]);
+
+  // How many orders feed each prep day, so a total of 15 kg can be traced back.
+  const ordersPerPrepDay = useMemo(() => {
+    const counts = new Map<string, { orders: number; due: number }>();
+
+    for (const day of prep.data?.days ?? []) {
+      const running = counts.get(day.deliveryDate) ?? { orders: 0, due: 0 };
+
+      running.orders += 1;
+      if (day.dueForReminder) running.due += 1;
+
+      counts.set(day.deliveryDate, running);
+    }
+
+    return counts;
+  }, [prep.data?.days]);
 
   const today = useMemo(() => DATE_FORMATTER.format(new Date()), []);
 
@@ -219,6 +239,86 @@ export default function Dashboard() {
                         : ""}
                     </p>
                   )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Items to prepare */}
+      <section className={CARD_CLASS}>
+        <SectionHeader
+          title="Items to Prepare"
+          description={
+            prep.data
+              ? `Everything due over the next ${prep.data.daysAhead} day${prep.data.daysAhead === 1 ? "" : "s"}, totalled per item.`
+              : "Everything due over the next few days, totalled per item."
+          }
+          action="View all"
+          to="/function-orders"
+        />
+
+        {prep.isPending ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton className="hidden h-32 w-full rounded-xl sm:block" />
+          </div>
+        ) : prep.isError ? (
+          <QueryErrorState
+            error={prep.error}
+            onRetry={() => void prep.refetch()}
+          />
+        ) : (prep.data?.preparation.length ?? 0) === 0 ? (
+          <EmptyState message="Nothing to prepare in the next few days." />
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {prep.data?.preparation.map((day) => {
+              const counts = ordersPerPrepDay.get(day.deliveryDate);
+
+              return (
+                <div
+                  key={day.deliveryDate}
+                  className={`min-w-0 rounded-xl border p-3 ${
+                    counts?.due
+                      ? "border-amber-300 bg-amber-50"
+                      : "border-slate-200 bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="truncate font-medium text-slate-900">
+                      {relativeDayLabel(day.daysUntil)}
+                    </p>
+
+                    <p className="shrink-0 text-xs text-slate-500">
+                      {formatDate(day.deliveryDate)}
+                    </p>
+                  </div>
+
+                  {counts ? (
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {counts.orders} order{counts.orders === 1 ? "" : "s"}
+                      {counts.due ? ` · ${counts.due} due now` : ""}
+                    </p>
+                  ) : null}
+
+                  <ul className="mt-2 space-y-1">
+                    {day.items.map((item) => (
+                      <li
+                        key={`${item.itemName}-${item.unit}`}
+                        className="flex items-baseline justify-between gap-3 text-sm"
+                      >
+                        <span className="min-w-0 truncate text-slate-700">
+                          {item.itemName}
+                        </span>
+
+                        <span className="shrink-0 font-medium tabular-nums text-slate-900">
+                          {formatQuantity(item.quantity)} {item.unit}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               );
             })}
@@ -555,3 +655,15 @@ function QuickAction({
 function EmptyState({ message }: { message: string }) {
   return <p className="py-10 text-center text-sm text-slate-500">{message}</p>;
 }
+
+function relativeDayLabel(daysUntil: number) {
+  if (daysUntil <= 0) return "Today";
+  if (daysUntil === 1) return "Tomorrow";
+  return `In ${daysUntil} days`;
+}
+
+// Goods are sold by weight, so 9 shows as "9" and 9.5 as "9.5".
+function formatQuantity(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0$/, "");
+}
+

@@ -81,14 +81,7 @@ export interface CardListQuery {
   limit?: number | undefined;
 }
 
-export interface CardIdParams {
-  id: string;
-}
-
 export interface CustomerIdParams {
   customerId: string;
 }
 
-export interface CardAssignmentParams {
-  cardId: string;
-}

@@ -12,6 +12,7 @@ import { useCustomerQuery } from "@/services/customer.service";
 import { useModalStore } from "@/store/modal.store";
 
 import CustomerOverviewTab from "./tabs/customer-overview-tab";
+import { getInitials } from "@/lib/utils";
 
 const CustomerDailyHistoryTab = lazy(
   () => import("./tabs/customer-daily-history-tab"),
@@ -30,17 +31,6 @@ const CustomerAccountTab = lazy(() => import("./tabs/customer-account-tab"));
 type CustomerDetailsContentProps = {
   customerId: string | null;
 };
-
-function getInitials(fullName: string) {
-  return fullName
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0))
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 export default function CustomerDetailsContent({
   customerId,

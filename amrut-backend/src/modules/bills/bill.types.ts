@@ -118,10 +118,6 @@ export interface BillListQuery {
   search?: string | undefined;
 }
 
-export interface BillIdParams {
-  billId: string;
-}
-
 export interface CustomerIdParams {
   customerId: string;
 }
@@ -202,14 +198,6 @@ export interface PaymentListQuery {
   search?: string | undefined;
 }
 
-export interface PaymentIdParams {
-  paymentId: string;
-}
-
-export interface BillPaymentsParams {
-  billId: string;
-}
-
 export interface CustomerPaymentsParams {
   customerId: string;
 }
@@ -227,4 +215,6 @@ export interface CreatePaymentRequest {
   paymentMethod: PaymentMethod;
   referenceNumber?: string | undefined;
   notes?: string | undefined;
+  /** yyyy-mm-dd business day the payment was received; today when omitted. */
+  receivedAt?: string | undefined;
 }

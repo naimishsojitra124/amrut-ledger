@@ -227,6 +227,10 @@ model AuthSession {
   userId           String    @db.ObjectId
   deviceId         String    @default("")
   refreshTokenHash String
+  // The token this one replaced, honoured for a few seconds so two tabs refreshing at
+  // once do not knock each other out. Optional, so existing rows need no backfill.
+  previousRefreshTokenHash String?
+  previousHashExpiresAt    DateTime?
   createdAt        DateTime  @default(now())
   lastUsedAt       DateTime  @default(now())
   expiresAt        DateTime

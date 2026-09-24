@@ -348,7 +348,7 @@ export default function BillsTable({ onViewBill }: BillsTableProps) {
           const bill = row.original;
 
           return (
-            <div className="flex items-center justify-end gap-1.5 sm:gap-2">
+            <div className="flex items-center justify-center gap-1.5 sm:gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -404,7 +404,7 @@ export default function BillsTable({ onViewBill }: BillsTableProps) {
   }, [pageInfo]);
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-xl border bg-white shadow-sm sm:rounded-2xl">
+    <div className="flex flex-col rounded-xl border bg-white shadow-sm sm:rounded-2xl">
       <div className="shrink-0 border-b p-3 sm:p-5">
         <div className="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_auto] lg:items-end">
           <div className="relative min-w-0">
@@ -520,7 +520,7 @@ export default function BillsTable({ onViewBill }: BillsTableProps) {
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="flex-1">
         <Table className="min-w-160 sm:min-w-225">
           <TableHeader className="bg-[#F6F6F6]">
             {table.getHeaderGroups().map((headerGroup) => (

@@ -30,8 +30,11 @@ import {
   formatMoney,
   moneyChange,
 } from "../audit/audit.util";
-import { TX_OPTIONS } from "@/app/db/transaction";
+import { TX_OPTIONS, type TransactionClient } from "@/app/db/transaction";
 import { searchTerm } from "@/app/db/search";
+import { createHttpError } from "@/app/http-error";
+import { getPrisma } from "@/app/db/prisma";
+import { buildPageInfo } from "@/app/db/pagination";
 
 type CardAssignmentWithRelations = Prisma.CardAssignmentGetPayload<{
   include: {
@@ -143,16 +146,6 @@ interface CustomerPaymentRecord extends Prisma.PaymentGetPayload<{
   };
 }> {}
 
-function createHttpError(statusCode: number, message: string) {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = statusCode;
-  return error;
-}
-
-function getPrisma(app: FastifyInstance) {
-  return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
-}
-
 type PendingAuditLog = {
   customerId: string;
   type: any;
@@ -171,7 +164,7 @@ function makeAuditCollector() {
     add(entry: PendingAuditLog) {
       entries.push(entry);
     },
-    async flush(tx: PrismaClient) {
+    async flush(tx: TransactionClient) {
       if (entries.length === 0) return;
 
       await tx.auditLog.createMany({
@@ -442,18 +435,6 @@ async function normalizeCustomer(prisma: PrismaClient, customer: any): Promise<C
   };
 }
 
-export function buildPageInfo(totalItems: number, page: number, limit: number): PageInfo {
-  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
-  return {
-    page,
-    limit,
-    totalItems,
-    totalPages,
-    hasNextPage: page < totalPages,
-    hasPreviousPage: page > 1,
-  };
-}
-
 // Mobile numbers are optional, and a blank one is stored as absent rather than as "".
 function normalizeMobileNumber(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -479,7 +460,7 @@ async function findCustomersSharingMobile(
 }
 
 async function writeAuditLog(
-  tx: PrismaClient,
+  tx: TransactionClient,
   data: {
     customerId: string;
     type: any;
@@ -503,7 +484,7 @@ async function writeAuditLog(
   });
 }
 
-async function getNextCardNumber(tx: PrismaClient) {
+async function getNextCardNumber(tx: TransactionClient) {
   const lastCard = await tx.card.findFirst({
     orderBy: { cardNumber: "desc" },
   });
@@ -512,7 +493,7 @@ async function getNextCardNumber(tx: PrismaClient) {
 }
 
 // Resolved before the transaction: a spare Card row costs nothing if the request later fails.
-async function resolveCardForCustomer(tx: PrismaClient, inputCardNumber: number | undefined) {
+async function resolveCardForCustomer(tx: TransactionClient, inputCardNumber: number | undefined) {
   if (inputCardNumber !== undefined) {
     const existing = await tx.card.findUnique({
       where: { cardNumber: inputCardNumber },
@@ -545,7 +526,7 @@ async function resolveCardForCustomer(tx: PrismaClient, inputCardNumber: number 
 }
 
 async function closeActiveAssignmentIfAny(
-  tx: PrismaClient,
+  tx: TransactionClient,
   customerId: string,
   closedAt: Date,
   performedById: string,
@@ -591,7 +572,7 @@ async function closeActiveAssignmentIfAny(
 }
 
 async function assignCardToCustomer(
-  tx: PrismaClient,
+  tx: TransactionClient,
   customerId: string,
   cardNumber: number | undefined,
   assignedById: string,
@@ -988,7 +969,7 @@ async function resolveCardForNewCustomer(
   });
 }
 
-async function assertCardIsFree(tx: PrismaClient, cardId: string, cardNumber: number) {
+async function assertCardIsFree(tx: TransactionClient, cardId: string, cardNumber: number) {
   const activeAssignment = await tx.cardAssignment.findFirst({
     where: { cardId, unassignedAt: null },
     select: { id: true },
@@ -1037,7 +1018,7 @@ export async function createCustomer(
   const depositAmount = input.depositAmount ?? 0;
   const notes = input.notes ?? "";
 
-  const result = await prisma.$transaction(async (tx: PrismaClient) => {
+  const result = await prisma.$transaction(async (tx: TransactionClient) => {
     const audit = makeAuditCollector();
 
     await assertCardIsFree(tx, card.id, card.cardNumber);
@@ -1285,7 +1266,7 @@ export async function setOpeningBalance(
     );
   }
 
-  return prisma.$transaction(async (tx: PrismaClient) => {
+  return prisma.$transaction(async (tx: TransactionClient) => {
     const bill = await tx.bill.create({
       data: buildOpeningBalanceBill({
         customerId,
@@ -1337,7 +1318,7 @@ export async function removeOpeningBalance(
     );
   }
 
-  await prisma.$transaction(async (tx: PrismaClient) => {
+  await prisma.$transaction(async (tx: TransactionClient) => {
     await tx.bill.delete({ where: { id: opening.id } });
 
     const audit = makeAuditCollector();
@@ -1539,7 +1520,7 @@ export async function updateCustomer(
     ]);
   }
 
-  const transactionResult = await prisma.$transaction(async (tx: PrismaClient) => {
+  const transactionResult = await prisma.$transaction(async (tx: TransactionClient) => {
     const updatedCustomer = await tx.customer.update({
       where: { id },
       data: {
@@ -1689,7 +1670,7 @@ export async function archiveCustomer(
     throw createHttpError(409, "Refund the remaining deposit before closing this customer");
   }
 
-  const result = await prisma.$transaction(async (tx: PrismaClient) => {
+  const result = await prisma.$transaction(async (tx: TransactionClient) => {
     const now = new Date();
 
     const activeAssignment = await tx.cardAssignment.findFirst({
@@ -1771,7 +1752,7 @@ export async function topUpDeposit(
 ) {
   const prisma = getPrisma(app);
 
-  return prisma.$transaction(async (tx: PrismaClient) => {
+  return prisma.$transaction(async (tx: TransactionClient) => {
     const customer = await tx.customer.findUnique({ where: { id } });
 
     if (!customer || customer.status !== "active")
@@ -1818,7 +1799,7 @@ export async function refundDeposit(
   performedById: string,
 ) {
   const prisma = getPrisma(app);
-  return prisma.$transaction(async (tx: PrismaClient) => {
+  return prisma.$transaction(async (tx: TransactionClient) => {
     const customer = await tx.customer.findUnique({ where: { id } });
     if (!customer) throw createHttpError(404, "Customer not found");
     if (input.amount > Number(customer.depositAmount))
@@ -1936,7 +1917,7 @@ export async function restoreCustomer(
   if (!existing) throw createHttpError(404, "Customer not found");
   if (existing.status === "active") throw createHttpError(409, "Customer is already active");
 
-  const result = await prisma.$transaction(async (tx: PrismaClient) => {
+  const result = await prisma.$transaction(async (tx: TransactionClient) => {
     const updated = await tx.customer.update({
       where: { id },
       data: {

@@ -26,6 +26,8 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { PERMISSIONS } from "@/config/permissions";
 import type { CustomerDailyHistoryItemResponse } from "@/types/customer";
 import { formatCurrency } from "@/utils/format-currency";
+import { getApiErrorMessage } from "@/services/utils/apiConnector";
+import { businessToday } from "@/config/business";
 
 type Props = {
   customerId: string;
@@ -67,17 +69,9 @@ const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("en-IN", {
   timeZone: "UTC",
 });
 
-const BUSINESS_TIME_ZONE = "Asia/Kolkata";
-
 // A ledger date as the app stores it: the yyyy-mm-dd business day.
 function toDateKey(value: string) {
   return value.slice(0, 10);
-}
-
-function businessToday() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: BUSINESS_TIME_ZONE,
-  }).format(new Date());
 }
 
 type DayRow = {
@@ -165,12 +159,6 @@ function getDailyTotal(item: CustomerDailyHistoryItemResponse) {
       ),
     0,
   );
-}
-
-function getErrorMessage(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : "Unable to load daily history.";
 }
 
 export default function CustomerDailyHistoryTab({
@@ -426,7 +414,10 @@ export default function CustomerDailyHistoryTab({
               <TableRow>
                 <TableCell colSpan={4} className="p-0">
                   <QueryErrorState
-                    error={getErrorMessage(error)}
+                    error={getApiErrorMessage(
+                      error,
+                      "Unable to load daily history.",
+                    )}
                     onRetry={() => void refetch()}
                   />
                 </TableCell>
@@ -543,17 +534,19 @@ export default function CustomerDailyHistoryTab({
                           {productEntries.map((product, index) => (
                             <div
                               key={`${item.id}-product-${product.itemName}-${index}`}
-                              className="flex items-start justify-between gap-3 text-sm"
+                              className="flex items-start justify-start gap-2 text-sm"
                             >
                               <span className="min-w-0 font-medium text-neutral-600">
                                 <span aria-hidden="true">• </span>
-                                <span className="wrap-break-word">
-                                  {product.itemName} × {product.quantity}
+                                <span className="shrink-0 font-medium text-neutral-800">
+                                  {formatCurrency(product.amount)}
                                 </span>
                               </span>
 
-                              <span className="shrink-0 font-medium text-neutral-800">
-                                {formatCurrency(product.amount)}
+                              <span className="">-</span>
+
+                              <span className="wrap-break-word">
+                                {product.itemName} × {product.quantity}
                               </span>
                             </div>
                           ))}

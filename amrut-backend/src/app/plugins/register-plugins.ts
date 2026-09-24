@@ -13,6 +13,7 @@ import { jwtPlugin } from "./jwt.plugin.js";
 import { swaggerPlugin } from "./swagger.plugin.js";
 import { websocketPlugin } from "./websocket.plugin.js";
 import { startDemoResetSchedule } from "@/modules/demo/demo-reset.service";
+import { startFunctionReminderSchedule } from "@/modules/function-orders/function-order.job";
 
 export async function registerAppPlugins(app: FastifyInstance) {
   await app.register(helmet, {
@@ -57,4 +58,7 @@ export async function registerAppPlugins(app: FastifyInstance) {
 
   // Inert unless DEMO_MODE is on.
   startDemoResetSchedule(app);
+
+  // Warns ahead of catering deliveries so the items can be prepared in time.
+  startFunctionReminderSchedule(app);
 }

@@ -53,6 +53,12 @@ export const createPaymentSchema = z
     paymentMethod: z.enum(["cash", "upi"]),
     referenceNumber: z.string().trim().max(100).optional(),
     notes: z.string().trim().max(1000).optional(),
+    // The day the money actually changed hands, for a payment written in the physical
+    // book first and entered here later. Defaults to today when omitted.
+    receivedAt: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Payment date must be in YYYY-MM-DD format")
+      .optional(),
   })
   .refine((value) => value.amount > 0 || value.useDeposit, {
     message: "Enter a payment amount or use the deposit",

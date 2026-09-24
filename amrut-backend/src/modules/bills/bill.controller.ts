@@ -24,6 +24,7 @@ import {
   recordPayment,
   reversePayment,
 } from "./bill.service";
+import { getCurrentUserId } from "@/app/middleware/authorize";
 
 export async function getBillsHandler(request: FastifyRequest, reply: FastifyReply) {
   const query = billListQuerySchema.parse(request.query);
@@ -121,16 +122,6 @@ export async function generateBillHandler(
   return reply.status(201).send(result);
 }
 
-
-function getCurrentUserId(request: FastifyRequest) {
-  const user = request.user as { sub?: string };
-
-  if (!user?.sub) {
-    throw new Error("Unauthorized");
-  }
-
-  return user.sub;
-}
 
 export async function recordPaymentHandler(
   request: FastifyRequest,

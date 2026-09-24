@@ -32,7 +32,3 @@ export function usePermissions() {
   return { can, canAny, canAll, permissions: granted, role: user?.role ?? null };
 }
 
-export function useCan(permission: Permission): boolean {
-  const { can } = usePermissions();
-  return can(permission);
-}

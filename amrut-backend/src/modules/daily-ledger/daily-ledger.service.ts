@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "../../../generated/prisma/client";
 import { AUDIT_FIELD, change, describeLedgerEntry } from "../audit/audit.util";
-import { TX_OPTIONS } from "@/app/db/transaction";
+import { TX_OPTIONS, type TransactionClient } from "@/app/db/transaction";
 import { nanoid } from "nanoid";
 import type {
   AddDailyLedgerEntryRequest,
@@ -17,16 +17,8 @@ import type {
   LastLedgerEntryResponse,
   UpdateDailyLedgerEntryRequest,
 } from "./daily-ledger.types";
-
-function createHttpError(statusCode: number, message: string) {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = statusCode;
-  return error;
-}
-
-function getPrisma(app: FastifyInstance) {
-  return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
-}
+import { createHttpError } from "@/app/http-error";
+import { getPrisma } from "@/app/db/prisma";
 
 // A business date is the Asia/Kolkata calendar day, stored as UTC midnight.
 function toBusinessDateString(date: Date) {
@@ -946,7 +938,7 @@ export async function addLedgerEntry(
 
   const result =
     await prisma.$transaction(
-      async (tx: PrismaClient) => {
+      async (tx: TransactionClient) => {
         const existing =
           await tx.dailyLedger.findUnique({
             where: {
@@ -1106,7 +1098,7 @@ export async function updateLedgerEntry(
     productEntries: nextProductEntries,
   });
 
-  const result = await prisma.$transaction(async (tx: PrismaClient) => {
+  const result = await prisma.$transaction(async (tx: TransactionClient) => {
     const current = await tx.dailyLedger.findUnique({
       where: { customerId_ledgerDate: { customerId, ledgerDate } },
       select: { id: true, entries: true },
@@ -1174,7 +1166,7 @@ export async function deleteLedgerEntry(
   const prisma = getPrisma(app);
   const ledgerDate = dateStringToBusinessDate(date);
 
-  const result = await prisma.$transaction(async (tx: PrismaClient) => {
+  const result = await prisma.$transaction(async (tx: TransactionClient) => {
     const current = await tx.dailyLedger.findUnique({
       where: { customerId_ledgerDate: { customerId, ledgerDate } },
       select: { id: true, entries: true },
@@ -1252,7 +1244,7 @@ export async function setLedgerNoPurchase(
   const assignment = await getAssignmentForLedgerDateOrThrow(prisma, customerId, date);
   const ledgerDate = dateStringToBusinessDate(date);
 
-  const result = await prisma.$transaction(async (tx: PrismaClient) => {
+  const result = await prisma.$transaction(async (tx: TransactionClient) => {
     const existing = await tx.dailyLedger.findUnique({
       where: { customerId_ledgerDate: { customerId, ledgerDate } },
       select: { id: true, entries: true, noPurchase: true },

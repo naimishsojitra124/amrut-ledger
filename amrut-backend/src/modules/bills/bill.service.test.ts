@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   getDepositCredit,
+  resolveReceivedAt,
   selectBillsToCarryForward,
   sumCarriedForward,
 } from "./bill.service";
+import { toBusinessDateString } from "@/app/business-date";
 
 describe("getDepositCredit", () => {
   it("uses only the available deposit and never more than the bill balance", () => {
@@ -84,5 +86,47 @@ describe("carrying balances forward", () => {
 
     expect(totalOwedAfter).toBe(totalOwedBefore);
     expect(totalOwedAfter).toBe(2000);
+  });
+});
+
+describe("dating a payment to the day it was received", () => {
+  it("leaves the timestamp to the database when no date is given", () => {
+    expect(resolveReceivedAt(undefined)).toBeUndefined();
+    expect(resolveReceivedAt("")).toBeUndefined();
+  });
+
+  it("stores a back-dated payment at the start of that business day", () => {
+    const received = resolveReceivedAt("2026-09-20");
+
+    expect(received).toBeInstanceOf(Date);
+    // Midnight in Asia/Kolkata is 18:30 UTC the day before.
+    expect(received?.toISOString()).toBe("2026-09-19T18:30:00.000Z");
+    expect(toBusinessDateString(received!)).toBe("2026-09-20");
+  });
+
+  it("keeps the real clock time for a payment dated today, so same-day order holds", () => {
+    const today = toBusinessDateString();
+    const before = Date.now();
+    const received = resolveReceivedAt(today);
+    const after = Date.now();
+
+    expect(received!.getTime()).toBeGreaterThanOrEqual(before);
+    expect(received!.getTime()).toBeLessThanOrEqual(after);
+    expect(toBusinessDateString(received!)).toBe(today);
+  });
+
+  it("refuses a date in the future", () => {
+    const tomorrow = toBusinessDateString(new Date(Date.now() + 24 * 60 * 60 * 1000));
+
+    expect(() => resolveReceivedAt(tomorrow)).toThrowError(
+      /cannot be dated in the future/,
+    );
+  });
+
+  it("round-trips every day of a month back to the same business date", () => {
+    for (let day = 1; day <= 28; day += 1) {
+      const date = `2026-02-${String(day).padStart(2, "0")}`;
+      expect(toBusinessDateString(resolveReceivedAt(date)!)).toBe(date);
+    }
   });
 });

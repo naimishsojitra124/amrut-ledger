@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client";
 import type { BillStatus, PaymentMethod } from "../../../generated/prisma/enums";
-import { TX_OPTIONS } from "@/app/db/transaction";
+import { TX_OPTIONS, type TransactionClient } from "@/app/db/transaction";
 import {
   AUDIT_FIELD,
   change,
@@ -33,6 +33,9 @@ import type {
   PaymentSummaryResponse,
 } from "./bill.types";
 import { searchTerm } from "@/app/db/search";
+import { createHttpError } from "@/app/http-error";
+import { startOfBusinessDay, toBusinessDateString } from "@/app/business-date";
+import { getPrisma } from "@/app/db/prisma";
 
 type BillRecord = Prisma.BillGetPayload<{
   include: {
@@ -61,16 +64,6 @@ interface EarlierUnpaidBill {
   outstandingAmount: number;
   month: number;
   year: number;
-}
-
-function createHttpError(statusCode: number, message: string) {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = statusCode;
-  return error;
-}
-
-function getPrisma(app: FastifyInstance) {
-  return (app as FastifyInstance & { prisma: PrismaClient }).prisma;
 }
 
 function toIso(value: Date | null | undefined): string | null {
@@ -162,14 +155,6 @@ function normalizeBillResponse(
   };
 }
 
-function normalizePaymentCustomer(customer: any) {
-  return {
-    id: customer.id,
-    fullName: customer.fullName,
-    mobileNumber: customer.mobileNumber,
-  };
-}
-
 function normalizePaymentBill(bill: any) {
   return {
     id: bill.id,
@@ -193,7 +178,7 @@ function normalizePayment(payment: PaymentRecord): PaymentListItemResponse {
   return {
     id: payment.id,
     customerId: payment.customerId,
-    customer: normalizePaymentCustomer(payment.customer),
+    customer: normalizeBillCustomer(payment.customer),
     billId: payment.billId,
     bill: normalizePaymentBill(payment.bill),
     billMonth: payment.billMonth,
@@ -838,7 +823,7 @@ export async function generateBill(
 
   const billNumber = getBillNumber(month, year, cardAssignment.card.cardNumber);
 
-  const createdBill = await prisma.$transaction(async (tx: PrismaClient) => {
+  const createdBill = await prisma.$transaction(async (tx: TransactionClient) => {
     const bill = await tx.bill.create({
       data: {
         billNumber,
@@ -924,13 +909,28 @@ export async function generateBill(
 }
 
 // Receipt numbers come from a counter because the column is unique.
-async function getReceiptNumber(tx: PrismaClient, year: number) {
+async function getReceiptNumber(tx: TransactionClient, year: number) {
   const counter = await tx.counter.upsert({
     where: { id: `receipt-${year}` },
     create: { id: `receipt-${year}`, nextNumber: 2 },
     update: { nextNumber: { increment: 1 } },
   });
   return `REC-${year}-${String(counter.nextNumber - 1).padStart(4, "0")}`;
+}
+
+// A payment written in the physical book days earlier should carry the day it was taken,
+// not the day someone got round to typing it in.
+export function resolveReceivedAt(dateString: string | undefined): Date | undefined {
+  if (!dateString) return undefined;
+
+  const today = toBusinessDateString();
+
+  if (dateString > today) {
+    throw createHttpError(400, "A payment cannot be dated in the future.");
+  }
+
+  // Today keeps the real clock time, so several payments on one day stay in order.
+  return dateString === today ? new Date() : startOfBusinessDay(dateString);
 }
 
 export async function recordPayment(
@@ -946,7 +946,9 @@ export async function recordPayment(
   });
   if (previousPayment) return normalizePayment(previousPayment);
 
-  const payment = await prisma.$transaction(async (tx: PrismaClient) => {
+  const receivedAt = resolveReceivedAt(input.receivedAt);
+
+  const payment = await prisma.$transaction(async (tx: TransactionClient) => {
     const bill = await tx.bill.findUnique({
       where: { id: input.billId },
       include: {
@@ -1012,6 +1014,7 @@ export async function recordPayment(
         notes: input.notes ?? "",
 
         receivedById: performedById,
+        ...(receivedAt ? { receivedAt } : {}),
       },
       include: {
         customer: true,
@@ -1091,7 +1094,7 @@ export async function recordPayment(
 
 export async function reversePayment(app: FastifyInstance, paymentId: string, reason: string, performedById: string) {
   const prisma = getPrisma(app);
-  const payment = await prisma.$transaction(async (tx: PrismaClient) => {
+  const payment = await prisma.$transaction(async (tx: TransactionClient) => {
     const existing = await tx.payment.findUnique({ where: { id: paymentId }, include: { bill: true } });
     if (!existing) throw createHttpError(404, "Payment not found");
     if (existing.reversedAt) throw createHttpError(409, "Payment is already reversed");
