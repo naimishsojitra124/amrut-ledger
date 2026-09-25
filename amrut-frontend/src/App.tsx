@@ -13,6 +13,7 @@ import RequirePermission from "./components/RequirePermission";
 import { PERMISSIONS } from "@/config/permissions";
 import AuthBootstrap from "./components/AuthBootstrap";
 import { SuspenseLoader } from "./components/common/suspense-loader";
+import { RouteError } from "./components/common/route-error";
 import { OfflineSyncManager } from "./components/offline-sync-manager";
 import { RealtimeSync } from "./components/realtime-sync";
 import { useAuthStore } from "@/store/auth.store";
@@ -31,6 +32,7 @@ export const router = createBrowserRouter([
   {
     path: "/",
     element: <RootLayout />,
+    errorElement: <RouteError />,
     children: [
       {
         path: "login",
@@ -99,20 +101,6 @@ export const router = createBrowserRouter([
   },
 ]);
 
-function AuthLoadingScreen() {
-  return (
-    <div className="flex min-h-dvh items-center justify-center bg-neutral-50">
-      <div className="flex flex-col items-center gap-3">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-900" />
-
-        <p className="text-sm font-medium text-neutral-600">
-          Loading Amrut Ledger...
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function App() {
   const isAuthLoading = useAuthStore((state) => state.isLoading);
 
@@ -120,19 +108,22 @@ function App() {
     <>
       <AuthBootstrap />
 
-      {isAuthLoading ? (
-        <AuthLoadingScreen />
-      ) : (
+      {/* Nothing to sync or subscribe to until we know who is signed in. */}
+      {isAuthLoading ? null : (
         <>
           <OfflineSyncManager />
 
           <RealtimeSync />
-
-          <SuspenseLoader>
-            <RouterProvider router={router} />
-          </SuspenseLoader>
         </>
       )}
+
+      {/* Rendered straight away. On a cold free-tier backend the refresh call can take
+          the best part of a minute, and a signed-out visitor should not wait for it to
+          fail before the login page appears. ProtectedRoute holds the routes that do
+          depend on the answer. */}
+      <SuspenseLoader>
+        <RouterProvider router={router} />
+      </SuspenseLoader>
     </>
   );
 }

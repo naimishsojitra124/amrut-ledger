@@ -14,6 +14,33 @@ export { DEMO_ACCOUNT };
 
 let resetInFlight: Promise<void> | null = null;
 
+// A reseed drops and rebuilds every collection: tens of seconds of solid database work
+// on a small instance. Running it while someone is on the demo is what turns a page load
+// into a long wait, so it waits for a lull instead.
+const QUIET_PERIOD_MS = 10 * 60 * 1000;
+
+let lastVisitorRequestAt = 0;
+
+/** Uptime monitors ping around the clock; counting those would defer the reseed for ever. */
+export function recordVisitorRequest(url: string): void {
+  if (url.startsWith("/health")) return;
+
+  lastVisitorRequestAt = Date.now();
+}
+
+export function demoIsInUse(): boolean {
+  return lastVisitorRequestAt > 0 && Date.now() - lastVisitorRequestAt < QUIET_PERIOD_MS;
+}
+
+/** Test seam: the tracker is module state, so a test needs a way back to a clean slate. */
+export function forgetVisitorActivity(): void {
+  lastVisitorRequestAt = 0;
+}
+
+function watchVisitorActivity(app: FastifyInstance): void {
+  app.addHook("onRequest", async (request) => recordVisitorRequest(request.url));
+}
+
 // Compared against a stored timestamp, because this host sleeps and a timer would just stop.
 function isStale(lastResetAt: Date | null): boolean {
   if (!lastResetAt) return true;
@@ -61,6 +88,15 @@ async function resetDemoDataIfStale(app: FastifyInstance): Promise<boolean> {
 
   if (!isStale(lastResetAt)) return false;
 
+  // Stale, but someone is looking at it. The next tick tries again.
+  if (demoIsInUse()) {
+    app.log.info(
+      { lastVisitorRequestAt: new Date(lastVisitorRequestAt).toISOString() },
+      "demo reset: deferred, the demo is in use",
+    );
+    return false;
+  }
+
   await resetDemoData(app);
   return true;
 }
@@ -84,6 +120,8 @@ async function ensureDemoAccount(app: FastifyInstance): Promise<void> {
 
 export function startDemoResetSchedule(app: FastifyInstance): void {
   if (!env.demoMode) return;
+
+  watchVisitorActivity(app);
 
   const check = async () => {
     try {

@@ -10,6 +10,13 @@ const prisma = new PrismaClient({
 export const prismaPlugin = fp(async (app) => {
   app.decorate("prisma", prisma);
 
+  // Prisma connects lazily, which charges the MongoDB handshake to whichever request
+  // arrives first. Starting it here overlaps it with the rest of boot instead, and is
+  // deliberately not awaited so a slow database cannot hold the port closed.
+  void prisma
+    .$connect()
+    .catch((error: unknown) => app.log.error({ err: error }, "prisma: initial connect failed"));
+
   app.addHook("onClose", async () => {
     await prisma.$disconnect();
   });

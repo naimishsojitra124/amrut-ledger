@@ -22,6 +22,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [guestLoading, setGuestLoading] = useState(false);
   const [error, setError] = useState("");
+  const [slowRequest, setSlowRequest] = useState(false);
 
   /**
    * Only offer the demo where one exists. A deployment without DEMO_MODE
@@ -127,6 +128,20 @@ export default function Login() {
     [mobileNumber, password],
   );
 
+  // The demo backend sleeps when idle and its first request pays the wake-up cost.
+  // Saying so beats a button that looks stuck.
+  useEffect(() => {
+    if (!loading && !guestLoading) return;
+
+    const timer = setTimeout(() => setSlowRequest(true), 4000);
+
+    // Clearing on the way out covers both a finished sign-in and a failed one.
+    return () => {
+      clearTimeout(timer);
+      setSlowRequest(false);
+    };
+  }, [loading, guestLoading]);
+
   useEffect(() => {
     document.addEventListener("keydown", handleKeyDown);
 
@@ -199,6 +214,13 @@ export default function Login() {
           {error ? (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
               {error}
+            </div>
+          ) : null}
+
+          {slowRequest ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              Waking the demo server. The free hosting tier sleeps when idle, so
+              the first sign-in can take up to a minute.
             </div>
           ) : null}
 
