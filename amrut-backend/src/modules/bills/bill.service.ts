@@ -801,21 +801,40 @@ export function summariseLedgersForBill(ledgers: { entries?: unknown }[]) {
     }
   }
 
-  const milkSummary = [...milkMap.values()].map((item) => ({
-    milkTypeId: item.milkTypeId,
-    milkTypeName: item.milkTypeName,
-    litres: Math.round(item.litres * 100) / 100,
-    rate: toRupees(item.rate),
-    amount: toRupees(item.amount),
-  }));
+  /**
+   * Priced from the month's total, never by adding up each day's rounded figure.
+   *
+   * A day's amount is stored as whole rupees, so 0.75 L at Rs 54 is kept as 41 rather
+   * than 40.50. Adding 28 of those gave 1,148 for 21 litres that are worth 1,134 — the
+   * half-rupee was charged to the customer 28 times over. Multiplying the summed litres
+   * by the rate rounds once, at the end, where a half-rupee is a half-rupee.
+   */
+  const milkSummary = [...milkMap.values()].map((item) => {
+    const litres = Math.round(item.litres * 100) / 100;
+    const rate = toRupees(item.rate);
 
-  const otherItems = [...productMap.values()].map((item) => ({
-    productSuggestionId: item.productSuggestionId,
-    itemName: item.itemName,
-    quantity: item.quantity,
-    unitPrice: toRupees(item.unitPrice),
-    amount: toRupees(item.amount),
-  }));
+    return {
+      milkTypeId: item.milkTypeId,
+      milkTypeName: item.milkTypeName,
+      litres,
+      rate,
+      amount: Math.round(litres * rate),
+    };
+  });
+
+  // Same reasoning: a fractional quantity times a whole unit price rounds once.
+  const otherItems = [...productMap.values()].map((item) => {
+    const quantity = Math.round(item.quantity * 100) / 100;
+    const unitPrice = toRupees(item.unitPrice);
+
+    return {
+      productSuggestionId: item.productSuggestionId,
+      itemName: item.itemName,
+      quantity,
+      unitPrice,
+      amount: Math.round(quantity * unitPrice),
+    };
+  });
 
   const totalMilkLitres =
     Math.round(milkSummary.reduce((sum, item) => sum + item.litres, 0) * 100) / 100;

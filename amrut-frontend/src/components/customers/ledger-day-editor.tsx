@@ -14,6 +14,7 @@ import {
 import { usePermissions } from "@/hooks/use-permissions";
 import { PERMISSIONS } from "@/config/permissions";
 import { formatCurrency } from "@/utils/format-currency";
+import { entryAmount } from "@/lib/ledger-money";
 
 type Props = {
   customerId: string;
@@ -108,7 +109,7 @@ export default function LedgerDayEditor({ customerId, date, onClose }: Props) {
 
               <div className="flex shrink-0 items-center gap-2">
                 <span className="text-sm font-semibold text-neutral-800">
-                  {formatCurrency(entry.totalAmount)}
+                  {formatCurrency(entryAmount(entry))}
                 </span>
 
                 {canDelete ? (

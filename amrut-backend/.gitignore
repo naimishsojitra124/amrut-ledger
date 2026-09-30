@@ -20,3 +20,6 @@ generated/prisma/
 # OS
 .DS_Store
 Thumbs.db
+
+# Safety copies written before a data repair script runs.
+backups/

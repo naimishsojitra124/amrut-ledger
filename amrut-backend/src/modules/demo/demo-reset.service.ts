@@ -118,8 +118,32 @@ async function ensureDemoAccount(app: FastifyInstance): Promise<void> {
   app.log.info("demo reset: guest account created");
 }
 
+/**
+ * The database a reset is allowed to destroy has to say so in its own name.
+ *
+ * DEMO_MODE and DATABASE_URL live in the same .env, so pointing that file at the live
+ * database while DEMO_MODE is still on would drop every customer, ledger and bill on the
+ * next scheduled check. Naming the database is the one signal that cannot be set by
+ * accident when someone is only editing a connection string.
+ */
+function databaseLooksLikeADemo(): boolean {
+  const name = (process.env.DATABASE_URL ?? "").match(/\/([^/?]+)(\?|$)/)?.[1] ?? "";
+
+  return /demo/i.test(name);
+}
+
 export function startDemoResetSchedule(app: FastifyInstance): void {
   if (!env.demoMode) return;
+
+  if (!databaseLooksLikeADemo()) {
+    app.log.error(
+      'DEMO_MODE is on but DATABASE_URL does not point at a database with "demo" in its ' +
+        "name. The reset job wipes every collection, so it will not run. Rename the demo " +
+        "database, or turn DEMO_MODE off for this one.",
+    );
+
+    return;
+  }
 
   watchVisitorActivity(app);
 

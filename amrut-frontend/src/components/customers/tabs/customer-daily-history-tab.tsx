@@ -34,6 +34,7 @@ import type { CustomerDailyHistoryItemResponse } from "@/types/customer";
 import { formatCurrency } from "@/utils/format-currency";
 import { getApiErrorMessage } from "@/services/utils/apiConnector";
 import { businessToday } from "@/config/business";
+import { dayAmount, productLineAmount } from "@/lib/ledger-money";
 import { useModalStore } from "@/store/modal.store";
 import LedgerDayEditor from "@/components/customers/ledger-day-editor";
 
@@ -108,7 +109,6 @@ function buildMilkSummary(
 
         if (existing) {
           existing.litres += milk.litres;
-          existing.amount += milk.amount ?? 0;
           continue;
         }
 
@@ -117,13 +117,24 @@ function buildMilkSummary(
           milkTypeName: milk.milkTypeName ?? "Milk",
           litres: milk.litres,
           rate: milk.rate ?? 0,
-          amount: milk.amount ?? 0,
+          amount: 0,
         });
       }
     }
   }
 
-  return Array.from(summary.values());
+  /**
+   * Priced from the month's litres, never by adding each day's rounded amount.
+   *
+   * A day is stored in whole rupees, so 0.75 L at Rs 54 is held as 41 rather than 40.50;
+   * 28 of those came to 1,148 for milk worth 1,134. Rounding once, at the end, keeps this
+   * panel agreeing with the bill.
+   */
+  return Array.from(summary.values()).map((item) => ({
+    ...item,
+    litres: Math.round(item.litres * 100) / 100,
+    amount: Math.round((Math.round(item.litres * 100) / 100) * item.rate),
+  }));
 }
 
 function buildProductSummary(
@@ -139,7 +150,6 @@ function buildProductSummary(
 
         if (existing) {
           existing.quantity += product.quantity;
-          existing.amount += product.amount ?? 0;
           continue;
         }
 
@@ -147,29 +157,26 @@ function buildProductSummary(
           itemName: product.itemName,
           quantity: product.quantity,
           unitPrice: product.unitPrice,
-          amount: product.amount ?? 0,
+          amount: 0,
         });
       }
     }
   }
 
-  return Array.from(summary.values());
+  // Same rule as milk: a fractional quantity times a whole unit price rounds once.
+  return Array.from(summary.values()).map((item) => ({
+    ...item,
+    quantity: Math.round(item.quantity * 100) / 100,
+    amount: Math.round(
+      (Math.round(item.quantity * 100) / 100) * item.unitPrice,
+    ),
+  }));
 }
 
+// Worked out from litres and the rate, not from the day's stored whole-rupee figure,
+// so the column reads what the customer actually owes for that day.
 function getDailyTotal(item: CustomerDailyHistoryItemResponse) {
-  return item.entries.reduce(
-    (total, entry) =>
-      total +
-      (entry.milkEntries ?? []).reduce(
-        (sum, milk) => sum + (milk.amount ?? 0),
-        0,
-      ) +
-      (entry.productEntries ?? []).reduce(
-        (sum, product) => sum + (product.amount ?? 0),
-        0,
-      ),
-    0,
-  );
+  return dayAmount(item.entries);
 }
 
 export default function CustomerDailyHistoryTab({
@@ -643,19 +650,18 @@ export default function CustomerDailyHistoryTab({
                                   •{" "}
                                 </span>
 
-                                 <div className="space-x-1">
+                                <div className="space-x-1">
                                   {/* Money never breaks mid-number. */}
-                                <span className="ml-1 font-semibold whitespace-nowrap text-neutral-800">
-                                  {formatCurrency(product.amount)}
-                                </span>
+                                  <span className="ml-1 font-semibold whitespace-nowrap text-neutral-800">
+                                    {formatCurrency(productLineAmount(product))}
+                                  </span>
 
-                                <span>-</span>
+                                  <span>-</span>
 
-                                <span className="text-neutral-700">
-                                  {product.itemName}
-                                </span>
-
-                                 </div>
+                                  <span className="text-neutral-700">
+                                    {product.itemName}
+                                  </span>
+                                </div>
                               </div>
                             ))}
                           </div>
