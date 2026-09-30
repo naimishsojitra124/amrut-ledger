@@ -22,9 +22,18 @@ type CustomerFormPayload = {
   customerId: string | null;
 };
 
+type FullLedgerPayload = {
+  customerId: string;
+  selectedDate: string;
+  outstandingAmount?: number | null;
+};
+
 type PaymentPayload = {
   billId: string;
   customerId: string;
+
+  /** Where to go once the payment is done, so a modal opened from another returns to it. */
+  returnTo?: FullLedgerPayload;
 };
 
 type SettingsFormPayload = {
@@ -34,12 +43,6 @@ type SettingsFormPayload = {
 type CustomerModalPayload = {
   customerId: string;
   customerName?: string;
-};
-
-type FullLedgerPayload = {
-  customerId: string;
-  selectedDate: string;
-  outstandingAmount?: number | null;
 };
 
 type CustomerCloseConfirmPayload = {

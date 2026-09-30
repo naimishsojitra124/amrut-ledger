@@ -170,7 +170,7 @@ const Sidebar = () => {
           })}
         </nav>
 
-        <div className="shrink-0 bg-white border-t border-[#EEEEEE] p-2">
+        <div className="shrink-0 bg-white border-t border-[#EEEEEE] p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
           {isExpanded ? (
             <UserProfilePopover expanded={isExpanded} />
           ) : (

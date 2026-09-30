@@ -29,7 +29,7 @@ const Customers = () => {
   }
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col gap-4 px-3 py-3 sm:gap-5 sm:px-5 sm:py-4 overflow-y-auto">
+    <div className="flex h-full min-h-0 w-full flex-col gap-4 px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:gap-5 sm:px-5 sm:py-4 sm:pb-[calc(1rem+env(safe-area-inset-bottom))] overflow-y-auto">
       <PageHeader
         title="Customers"
         description="Manage customer accounts, cards, deposits and billing history."

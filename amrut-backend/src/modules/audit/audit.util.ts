@@ -160,6 +160,7 @@ export const AUDIT_FIELD = {
   entry: "Entry",
   billNumber: "Bill number",
   billTotal: "Bill total",
+  billCurrentCharges: "This month's charges",
   previousDue: "Previous dues carried forward",
   billPeriod: "Billing period",
   amountReceived: "Amount received",

@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 
+import { toast } from "sonner";
+
+import { formatCurrency } from "@/utils/format-currency";
 import { invalidateCustomerLedgerChanged } from "./utils/query-invalidation";
 import {
   FINANCIAL_QUERY_BEHAVIOR,
@@ -82,6 +85,19 @@ export interface DailyLedgerCardSummaryResponse {
   depositAtAssignment: number;
 }
 
+/** Reported by the server when an entry changed a month that already had a bill. */
+export interface LedgerBillUpdate {
+  status:
+    | "no-bill"
+    | "unchanged"
+    | "updated"
+    | "skipped-opening-balance"
+    | "skipped-carried-forward";
+  billNumber?: string;
+  previousTotal?: number;
+  newTotal?: number;
+}
+
 export interface DailyLedgerResponse {
   id: string;
   customerId: string;
@@ -93,6 +109,7 @@ export interface DailyLedgerResponse {
   // Someone confirmed the customer bought nothing that day, as opposed to nobody
   // having reached the day yet.
   noPurchase: boolean;
+  billUpdate?: LedgerBillUpdate;
   totalMilkLitres: number;
   totalMilkAmount: number;
   totalProductAmount: number;
@@ -117,6 +134,29 @@ function mapLedger(ledger: DailyLedgerResponse): DailyLedgerResponse {
     updatedAt: new Date(ledger.updatedAt).toISOString(),
     entries: ledger.entries.map(mapEntry),
   };
+}
+
+/**
+ * A bill that already existed for this month has just been brought back in line.
+ * Said out loud because the figure on a bill someone may already have shown a customer
+ * has changed, and that should never happen quietly.
+ */
+function reportBillUpdate(ledger: DailyLedgerResponse) {
+  const update = ledger.billUpdate;
+
+  if (update?.status === "updated") {
+    toast.info(
+      `Bill ${update.billNumber} updated: ${formatCurrency(update.previousTotal ?? 0)} to ${formatCurrency(update.newTotal ?? 0)}`,
+    );
+
+    return;
+  }
+
+  if (update?.status === "skipped-carried-forward") {
+    toast.warning(
+      `${update.billNumber} could not be updated: its balance has already been carried onto a later bill.`,
+    );
+  }
 }
 
 const ROOT_KEY = ["daily-ledgers"] as const;
@@ -238,6 +278,8 @@ export function useAddDailyLedgerEntryMutation() {
 
       queryClient.setQueryData(queryKey, ledger);
 
+      reportBillUpdate(ledger);
+
       await invalidateCustomerLedgerChanged(queryClient, variables.customerId);
     },
   });
@@ -285,6 +327,8 @@ export function useUpdateDailyLedgerEntryMutation() {
 
       queryClient.setQueryData(queryKey, ledger);
 
+      reportBillUpdate(ledger);
+
       await invalidateCustomerLedgerChanged(queryClient, variables.customerId);
     },
   });
@@ -316,6 +360,8 @@ export function useDeleteDailyLedgerEntryMutation() {
 
       queryClient.setQueryData(queryKey, ledger);
 
+      reportBillUpdate(ledger);
+
       await invalidateCustomerLedgerChanged(queryClient, variables.customerId);
     },
   });
@@ -342,7 +388,10 @@ export function useSetNoPurchaseMutation() {
     },
 
     onSuccess: async (result, variables) => {
-      const queryKey = dailyLedgerQueryKey(variables.customerId, variables.date);
+      const queryKey = dailyLedgerQueryKey(
+        variables.customerId,
+        variables.date,
+      );
 
       if (result.ledger) {
         queryClient.setQueryData(queryKey, mapLedger(result.ledger));

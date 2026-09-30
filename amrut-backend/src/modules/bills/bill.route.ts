@@ -9,6 +9,7 @@ import {
   getBillsHandler,
   getBillsSummaryHandler,
   getCustomerBillByMonthHandler,
+  getCustomerMonthSummaryHandler,
   getPaymentByIdHandler,
   getPaymentsHandler,
   getPaymentsSummaryHandler,
@@ -33,6 +34,14 @@ export const billRoutes: FastifyPluginAsync = async (app) => {
     "/customers/:customerId/bills/:year/:month",
     { preHandler: canViewBills },
     getCustomerBillByMonthHandler,
+  );
+
+  // Works whether or not the month has been billed, so the ledger screen can show the
+  // same previous-due and final-total figures the bill would carry.
+  app.get(
+    "/customers/:customerId/bills/:year/:month/summary",
+    { preHandler: canViewBills },
+    getCustomerMonthSummaryHandler,
   );
 
   app.get("/payments/summary", { preHandler: canViewPayments }, getPaymentsSummaryHandler);

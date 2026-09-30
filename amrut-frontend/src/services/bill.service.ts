@@ -25,6 +25,7 @@ import type {
   BillResponse,
   BillSummaryResponse,
   CreatePaymentRequest,
+  CustomerMonthSummaryResponse,
   GenerateBillRequest,
   PaymentListQuery,
   PaymentListResponse,
@@ -176,11 +177,54 @@ export async function recordPayment(
   });
 }
 
-export const useBillsQuery = (query: BillListQuery = {}) =>
+/**
+ * What a month owes, billed or not — the same previous-due and final-total figures the
+ * bill carries, so the ledger screen cannot disagree with it.
+ */
+export async function getCustomerMonthSummary(
+  customerId: string,
+  year: number,
+  month: number,
+  signal?: AbortSignal,
+): Promise<CustomerMonthSummaryResponse> {
+  return request<CustomerMonthSummaryResponse>(
+    "GET",
+    `/customers/${customerId}/bills/${year}/${month}/summary`,
+    { signal },
+  );
+}
+
+export const useCustomerMonthSummaryQuery = (
+  customerId: string,
+  year: number,
+  month: number,
+  options?: { enabled?: boolean },
+) =>
+  useQuery({
+    queryKey: [...BILL_ROOT, "month-summary", customerId, year, month] as const,
+
+    queryFn: ({ signal }) => getCustomerMonthSummary(customerId, year, month, signal),
+
+    enabled: options?.enabled ?? true,
+
+    staleTime: QUERY_STALE_TIMES.billsSummary,
+    gcTime: QUERY_GC_TIMES.standard,
+    ...FINANCIAL_QUERY_BEHAVIOR,
+    placeholderData: keepPreviousData,
+  });
+
+export const useBillsQuery = (
+  query: BillListQuery = {},
+  options?: { enabled?: boolean },
+) =>
   useQuery({
     queryKey: billQueryKeys.list(query),
 
     queryFn: ({ signal }) => getBills(query, signal),
+
+    // Callers that only want this for a permitted user can switch it off rather
+    // than let the request come back 403.
+    enabled: options?.enabled ?? true,
 
     staleTime: QUERY_STALE_TIMES.billsList,
     gcTime: QUERY_GC_TIMES.standard,

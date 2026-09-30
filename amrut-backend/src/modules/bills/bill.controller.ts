@@ -17,6 +17,7 @@ import {
   getBills,
   getBillsSummary,
   getCustomerBillByMonth,
+  getCustomerMonthSummary,
   getPaymentById,
   getPayments,
   getPaymentsSummary,
@@ -70,6 +71,16 @@ export async function getCustomerBillByMonthHandler(
 ) {
   const params = customerBillMonthParamSchema.parse(request.params);
   const result = await getCustomerBillByMonth(request.server, params);
+
+  return reply.send(result);
+}
+
+export async function getCustomerMonthSummaryHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const params = customerBillMonthParamSchema.parse(request.params);
+  const result = await getCustomerMonthSummary(request.server, params);
 
   return reply.send(result);
 }

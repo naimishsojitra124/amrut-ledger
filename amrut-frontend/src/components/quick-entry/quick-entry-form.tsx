@@ -367,7 +367,7 @@ export default function QuickEntryForm({
   const hasDraft = draftMilkRows.length > 0 || draftProductRows.length > 0;
 
   return (
-    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_320px]">
+    <section className="@container grid min-w-0 gap-4 @5xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_320px]">
       <div className="min-w-0 rounded-2xl border bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-4 flex items-center gap-2">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#266699]">
@@ -614,7 +614,7 @@ export default function QuickEntryForm({
         </div>
       </div>
 
-      <div className="h-fit min-w-0 rounded-2xl border bg-white p-4 shadow-sm sm:p-5 xl:sticky xl:top-3">
+      <div className="h-fit min-w-0 rounded-2xl border bg-white p-4 shadow-sm sm:p-5 @5xl:sticky @5xl:top-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-[15px] font-semibold text-neutral-900">

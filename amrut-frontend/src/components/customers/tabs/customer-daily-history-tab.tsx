@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   Info,
   Loader2,
+  IndianRupee,
+  Pencil,
+  Plus,
   ReceiptText,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -21,13 +24,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useCustomerDailyHistoryQuery } from "@/services/customer.service";
-import { useGenerateBillMutation } from "@/services/bill.service";
+import {
+  useCustomerMonthSummaryQuery,
+  useGenerateBillMutation,
+} from "@/services/bill.service";
 import { usePermissions } from "@/hooks/use-permissions";
 import { PERMISSIONS } from "@/config/permissions";
 import type { CustomerDailyHistoryItemResponse } from "@/types/customer";
 import { formatCurrency } from "@/utils/format-currency";
 import { getApiErrorMessage } from "@/services/utils/apiConnector";
 import { businessToday } from "@/config/business";
+import { useModalStore } from "@/store/modal.store";
+import LedgerDayEditor from "@/components/customers/ledger-day-editor";
 
 type Props = {
   customerId: string;
@@ -36,6 +44,9 @@ type Props = {
   // Offered where walking to the customer's Bills tab would be the long way
   // round, such as the ledger popup in Quick Entry.
   showGenerateBill?: boolean;
+  // Lets a missed day be corrected on the spot, rather than closing this screen and
+  // starting again in Quick Entry for every gap found against the customer's card.
+  allowEntryEditing?: boolean;
 };
 
 type MilkSummaryItem = {
@@ -166,6 +177,7 @@ export default function CustomerDailyHistoryTab({
   outstandingAmount,
   initialDate,
   showGenerateBill = false,
+  allowEntryEditing = false,
 }: Props) {
   const getInitialMonth = () => {
     if (!initialDate) {
@@ -186,6 +198,8 @@ export default function CustomerDailyHistoryTab({
 
     return year >= 1 ? year : INITIAL_YEAR;
   };
+
+  const [editingDate, setEditingDate] = useState<string | null>(null);
 
   const [selectedMonth, setSelectedMonth] = useState(getInitialMonth);
   const [selectedYear, setSelectedYear] = useState(getInitialYear);
@@ -281,10 +295,56 @@ export default function CustomerDailyHistoryTab({
   const outstanding = outstandingAmount ?? 0;
 
   const { can } = usePermissions();
+  const openPayment = useModalStore((state) => state.openPayment);
   const generateBill = useGenerateBillMutation();
   const [confirmingGenerate, setConfirmingGenerate] = useState(false);
 
+  // One source for both the bill's identity and the month's money: computed by the
+  // same helpers that generate a bill, so this screen cannot disagree with the bill.
+  const monthMoney = useCustomerMonthSummaryQuery(
+    customerId,
+    selectedYear,
+    selectedMonth,
+    { enabled: can(PERMISSIONS.BILL_VIEW) },
+  );
+
+  const money = monthMoney.data ?? null;
+
+  const existingBill = money?.billId
+    ? {
+        id: money.billId,
+        billNumber: money.billNumber ?? "",
+        grandTotal: money.grandTotal,
+        outstandingAmount: money.outstandingAmount,
+      }
+    : null;
+
   const canGenerateBill = showGenerateBill && can(PERMISSIONS.BILL_GENERATE);
+
+  const canEditEntries =
+    allowEntryEditing && can(PERMISSIONS.LEDGER_ENTRY_CREATE);
+
+  // The action column only exists when editing is on, so every colSpan follows it.
+  const columnCount = canEditEntries ? 5 : 4;
+
+  // Percentages rather than pixels: with table-fixed these make the table exactly as
+  // wide as the modal, which is what removes the sideways scroll. Reading a date meant
+  // scrolling back to find it, which defeated the point of the table.
+  const columnWidth = canEditEntries
+    ? {
+        date: "w-[15%]",
+        milk: "w-[26%]",
+        product: "w-[27%]",
+        total: "w-[15%]",
+        entry: "w-[16%]",
+      }
+    : {
+        date: "w-[17%]",
+        milk: "w-[31%]",
+        product: "w-[33%]",
+        total: "w-[17%]",
+        entry: "",
+      };
 
   function handleGenerateBill() {
     generateBill.mutate(
@@ -313,97 +373,86 @@ export default function CustomerDailyHistoryTab({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex w-full max-w-sm items-center justify-between overflow-hidden rounded-lg border sm:w-auto sm:min-w-65">
-          <Button
-            variant="ghost"
-            size="icon"
-            type="button"
-            aria-label="Previous month"
-            onClick={() => shiftMonth(-1)}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <div className="flex w-full max-w-sm items-center justify-between overflow-hidden rounded-lg border sm:w-auto sm:min-w-65">
+            <Button
+              variant="ghost"
+              size="icon"
+              type="button"
+              aria-label="Previous month"
+              onClick={() => shiftMonth(-1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
 
-          <span className="px-2 text-sm font-medium sm:text-base">
-            {selectedMonthLabel}
-          </span>
+            <span className="px-2 text-sm font-medium sm:text-base">
+              {selectedMonthLabel}
+            </span>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            type="button"
-            aria-label="Next month"
-            onClick={() => shiftMonth(1)}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              type="button"
+              aria-label="Next month"
+              onClick={() => shiftMonth(1)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {existingBill ? (
+            <Badge
+              variant="secondary"
+              className="gap-1.5 border border-emerald-200 bg-emerald-50 text-emerald-700"
+            >
+              <ReceiptText className="h-3.5 w-3.5" />
+              Bill {existingBill.billNumber} generated
+            </Badge>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-2">
           {isFetching && !isPending ? (
             <span className="text-xs text-neutral-500">Updating…</span>
           ) : null}
-
-          {canGenerateBill ? (
-            confirmingGenerate ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-neutral-600">
-                  Generate the {selectedMonthLabel} bill?
-                </span>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleGenerateBill}
-                  disabled={generateBill.isPending}
-                >
-                  {generateBill.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    "Confirm"
-                  )}
-                </Button>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setConfirmingGenerate(false)}
-                  disabled={generateBill.isPending}
-                >
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setConfirmingGenerate(true)}
-              >
-                <ReceiptText className="mr-2 h-4 w-4" />
-                Generate Bill
-              </Button>
-            )
-          ) : null}
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border">
-        <Table>
+      <div className="overflow-hidden rounded-lg border">
+        <Table className="w-full table-fixed">
           <TableHeader className="bg-[#F6F6F6]">
             <TableRow>
-              <TableHead className="border-r text-center">Date</TableHead>
+              <TableHead
+                className={`border-r text-center whitespace-normal ${columnWidth.date}`}
+              >
+                Date
+              </TableHead>
 
-              <TableHead className="border-r text-center">
+              <TableHead
+                className={`border-r text-center whitespace-normal ${columnWidth.milk}`}
+              >
                 Milk Purchases
               </TableHead>
 
-              <TableHead className="border-r text-center">
+              <TableHead
+                className={`border-r text-center whitespace-normal ${columnWidth.product}`}
+              >
                 Product Purchases
               </TableHead>
 
-              <TableHead className="w-35 text-center">Total</TableHead>
+              <TableHead
+                className={`border-r text-center whitespace-normal ${columnWidth.total}`}
+              >
+                Total
+              </TableHead>
+
+              {canEditEntries ? (
+                <TableHead
+                  className={`text-center whitespace-normal ${columnWidth.entry}`}
+                >
+                  Entry
+                </TableHead>
+              ) : null}
             </TableRow>
           </TableHeader>
 
@@ -412,7 +461,7 @@ export default function CustomerDailyHistoryTab({
               <DataTableSkeleton columns={4} rows={4} />
             ) : isError ? (
               <TableRow>
-                <TableCell colSpan={4} className="p-0">
+                <TableCell colSpan={columnCount} className="p-0">
                   <QueryErrorState
                     error={getApiErrorMessage(
                       error,
@@ -424,6 +473,46 @@ export default function CustomerDailyHistoryTab({
               </TableRow>
             ) : dayRows.length ? (
               dayRows.map(({ dateKey, date, item }) => {
+                const isEditing = editingDate === dateKey;
+                const hasEntries = Boolean(item && item.entries.length);
+
+                const actionCell = canEditEntries ? (
+                  <TableCell className="align-top text-center">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={isEditing ? "secondary" : "outline"}
+                      className="px-2"
+                      onClick={() => setEditingDate(isEditing ? null : dateKey)}
+                    >
+                      {hasEntries ? (
+                        <Pencil className="h-3.5 w-3.5" />
+                      ) : (
+                        <Plus className="h-3.5 w-3.5" />
+                      )}
+
+                      <span className="ml-1 hidden sm:inline">
+                        {hasEntries ? "Edit" : "Add"}
+                      </span>
+                    </Button>
+                  </TableCell>
+                ) : null;
+
+                const editorRow = isEditing ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={columnCount}
+                      className="bg-neutral-50 p-2 whitespace-normal"
+                    >
+                      <LedgerDayEditor
+                        customerId={customerId}
+                        date={dateKey}
+                        onClose={() => setEditingDate(null)}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ) : null;
+
                 // Someone checked this day and the customer bought nothing, which is
                 // a different statement from a day nobody has reached yet.
                 const isNoPurchase =
@@ -433,50 +522,57 @@ export default function CustomerDailyHistoryTab({
                 // reads as the whole month and a gap is visibly a gap.
                 if (!item || item.entries.length === 0) {
                   return (
-                    <TableRow
-                      key={item?.id ?? dateKey}
-                      className={isNoPurchase ? undefined : "bg-neutral-50/60"}
-                    >
-                      <TableCell className="border-r align-top">
-                        <div
-                          className={`text-sm font-medium ${
-                            isNoPurchase
-                              ? "text-neutral-700"
-                              : "text-neutral-500"
-                          }`}
-                        >
-                          {DATE_FORMATTER.format(date)}
-                        </div>
+                    <Fragment key={item?.id ?? dateKey}>
+                      <TableRow
+                        className={
+                          isNoPurchase ? undefined : "bg-neutral-50/60"
+                        }
+                      >
+                        <TableCell className="border-r align-top">
+                          <div
+                            className={`text-sm font-medium ${
+                              isNoPurchase
+                                ? "text-neutral-700"
+                                : "text-neutral-500"
+                            }`}
+                          >
+                            {DATE_FORMATTER.format(date)}
+                          </div>
 
-                        <div className="text-xs text-neutral-400">
-                          {WEEKDAY_FORMATTER.format(date)}
-                        </div>
-                      </TableCell>
+                          <div className="text-xs text-neutral-400">
+                            {WEEKDAY_FORMATTER.format(date)}
+                          </div>
+                        </TableCell>
 
-                      <TableCell className="border-r text-center">
-                        {isNoPurchase ? (
-                          <span className="text-xs font-medium text-emerald-700">
-                            No purchase
-                          </span>
-                        ) : (
-                          <span className="text-neutral-400">—</span>
-                        )}
-                      </TableCell>
+                        <TableCell className="border-r text-center">
+                          {isNoPurchase ? (
+                            <span className="text-xs font-medium text-emerald-700">
+                              No purchase
+                            </span>
+                          ) : (
+                            <span className="text-neutral-400">—</span>
+                          )}
+                        </TableCell>
 
-                      <TableCell className="border-r text-center text-neutral-400">
-                        —
-                      </TableCell>
+                        <TableCell className="border-r text-center text-neutral-400">
+                          —
+                        </TableCell>
 
-                      <TableCell className="text-center">
-                        {isNoPurchase ? (
-                          <span className="text-sm text-neutral-600">
-                            {formatCurrency(0)}
-                          </span>
-                        ) : (
-                          <span className="text-neutral-400">—</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
+                        <TableCell className="text-center">
+                          {isNoPurchase ? (
+                            <span className="text-sm text-neutral-600">
+                              {formatCurrency(0)}
+                            </span>
+                          ) : (
+                            <span className="text-neutral-400">—</span>
+                          )}
+                        </TableCell>
+
+                        {actionCell}
+                      </TableRow>
+
+                      {editorRow}
+                    </Fragment>
                   );
                 }
 
@@ -491,87 +587,104 @@ export default function CustomerDailyHistoryTab({
                 const dailyTotal = getDailyTotal(item);
 
                 return (
-                  <TableRow key={item.id}>
-                    <TableCell className="border-r align-top">
-                      <div className="text-sm font-medium text-neutral-900">
-                        {DATE_FORMATTER.format(date)}
-                      </div>
-
-                      <div className="text-xs text-neutral-500">
-                        {WEEKDAY_FORMATTER.format(date)}
-                      </div>
-                    </TableCell>
-
-                    <TableCell className="border-r align-top">
-                      {milkEntries.length ? (
-                        <div className="space-y-2">
-                          {milkEntries.map((milk, index) => (
-                            <div
-                              key={`${item.id}-milk-${milk.milkTypeId}-${index}`}
-                              className="space-y-1"
-                            >
-                              <Badge
-                                variant="secondary"
-                                className="bg-blue-50 font-semibold text-[#266699]"
-                              >
-                                {milk.milkTypeName}
-                              </Badge>
-
-                              <div className="text-sm font-medium text-neutral-600">
-                                {milk.litres.toFixed(2)} Ltr
-                              </div>
-                            </div>
-                          ))}
+                  <Fragment key={item.id}>
+                    <TableRow>
+                      <TableCell className="border-r align-top">
+                        <div className="text-sm font-medium text-neutral-900">
+                          {DATE_FORMATTER.format(date)}
                         </div>
-                      ) : (
-                        <span className="text-neutral-400">—</span>
-                      )}
-                    </TableCell>
 
-                    <TableCell className="border-r align-top">
-                      {productEntries.length ? (
-                        <div className="space-y-2">
-                          {productEntries.map((product, index) => (
-                            <div
-                              key={`${item.id}-product-${product.itemName}-${index}`}
-                              className="flex items-start justify-start gap-2 text-sm"
-                            >
-                              <span className="min-w-0 font-medium text-neutral-600">
-                                <span aria-hidden="true">• </span>
-                                <span className="shrink-0 font-medium text-neutral-800">
+                        <div className="text-xs text-neutral-500">
+                          {WEEKDAY_FORMATTER.format(date)}
+                        </div>
+                      </TableCell>
+
+                      <TableCell className="border-r align-top wrap-break-word whitespace-normal">
+                        {milkEntries.length ? (
+                          <div className="space-y-2">
+                            {milkEntries.map((milk, index) => (
+                              <div
+                                key={`${item.id}-milk-${milk.milkTypeId}-${index}`}
+                                className="space-y-1"
+                              >
+                                <Badge
+                                  variant="secondary"
+                                  className="bg-blue-50 font-semibold whitespace-normal text-[#266699]"
+                                >
+                                  {milk.milkTypeName}
+                                </Badge>
+
+                                <div className="text-sm font-medium text-neutral-600">
+                                  {milk.litres.toFixed(2)} Ltr
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-neutral-400">—</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="border-r align-top wrap-break-word whitespace-normal">
+                        {productEntries.length ? (
+                          <div className="space-y-2">
+                            {productEntries.map((product, index) => (
+                              // Laid out as flowing text rather than a flex row: in a
+                              // narrow column the row squeezed its first item to almost
+                              // nothing and broke the amount a digit per line.
+                              <div
+                                key={`${item.id}-product-${product.itemName}-${index}`}
+                                className="text-sm leading-snug flex"
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className="text-neutral-400"
+                                >
+                                  •{" "}
+                                </span>
+
+                                 <div className="space-x-1">
+                                  {/* Money never breaks mid-number. */}
+                                <span className="ml-1 font-semibold whitespace-nowrap text-neutral-800">
                                   {formatCurrency(product.amount)}
                                 </span>
-                              </span>
 
-                              <span className="">-</span>
+                                <span>-</span>
 
-                              <span className="wrap-break-word">
-                                {product.itemName} × {product.quantity}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-neutral-400">—</span>
-                      )}
-                    </TableCell>
+                                <span className="text-neutral-700">
+                                  {product.itemName}
+                                </span>
 
-                    <TableCell className="align-top text-center">
-                      <span className="text-xs font-medium text-neutral-500">
-                        Total
-                      </span>
+                                 </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-neutral-400">—</span>
+                        )}
+                      </TableCell>
 
-                      <span className="mt-1 block text-base font-semibold text-neutral-800">
-                        {formatCurrency(dailyTotal)}
-                      </span>
-                    </TableCell>
-                  </TableRow>
+                      <TableCell className="border-r align-top text-center">
+                        <span className="text-xs font-medium text-neutral-500">
+                          Total
+                        </span>
+
+                        <span className="mt-1 block text-base font-semibold text-neutral-800">
+                          {formatCurrency(dailyTotal)}
+                        </span>
+                      </TableCell>
+
+                      {actionCell}
+                    </TableRow>
+
+                    {editorRow}
+                  </Fragment>
                 );
               })
             ) : (
               <TableRow>
                 <TableCell
-                  colSpan={4}
+                  colSpan={columnCount}
                   className="h-32 text-center text-sm text-neutral-500"
                 >
                   No purchase history available for this month.
@@ -622,44 +735,187 @@ export default function CustomerDailyHistoryTab({
               <span>{formatCurrency(monthSummary.productTotal)}</span>
             </div>
 
-            <div className="flex items-center justify-between gap-4">
+            {/* <div className="flex items-center justify-between gap-4">
               <span>Total Milk</span>
               <span>{formatCurrency(monthSummary.milkTotal)}</span>
+            </div> */}
+
+            {/* The month's own purchases, before anything older is added in. */}
+            <div className="flex items-center justify-between gap-4 border-t pt-3 font-medium">
+              <span>This Month&apos;s Purchases</span>
+
+              <span>
+                {formatCurrency(
+                  money ? money.currentCharges : monthSummary.purchaseTotal,
+                )}
+              </span>
             </div>
 
-            <div className="flex items-center justify-between gap-4 border-y py-3">
-              <span className="font-semibold text-red-500">Previous Due</span>
+            {/* Unpaid balances from before this month, an opening outstanding included.
+                Read from the server so it matches what the bill carries. */}
+            <div className="flex items-center justify-between gap-4 pb-3 font-medium">
+              <span className="text-red-500">Previous Due</span>
 
-              <span className="font-semibold text-red-500">—</span>
+              <span className="text-red-500">
+                {money ? formatCurrency(money.previousDue) : "—"}
+              </span>
             </div>
 
-            <div className="flex items-center justify-between gap-4">
-              <span>Paid</span>
-              <span>—</span>
-            </div>
-
+            {/* Purchases plus previous due: what the bill is for. */}
             <div className="flex items-center justify-between gap-4 rounded-md bg-blue-50 px-3 py-3 text-lg font-bold text-[#266699] sm:text-xl">
               <span>Final Total</span>
 
               <span className="shrink-0">
-                {formatCurrency(monthSummary.purchaseTotal)}
+                {formatCurrency(
+                  money
+                    ? money.grandTotal
+                    : // Until the figures arrive, this month's purchases beat showing a
+                      // total that is silently missing its previous due.
+                      monthSummary.purchaseTotal,
+                )}
               </span>
             </div>
 
+            <div className="flex items-center justify-between gap-4">
+              <span>Paid</span>
+
+              <span
+                className={
+                  money && money.totalPaid > 0 ? "text-emerald-600" : undefined
+                }
+              >
+                {money ? formatCurrency(money.totalPaid) : "—"}
+              </span>
+            </div>
+
+            {/* Final total less what has been paid: what is still owed today. It equals
+                the final total until a payment lands, which is why the two can look like
+                the same figure at the moment a bill is generated. */}
             <div className="flex items-center justify-between gap-4 rounded-md border bg-neutral-50 px-3 py-3 font-semibold">
               <span>Outstanding</span>
 
               <span
                 className={
-                  outstanding > 0 ? "text-red-500" : "text-emerald-600"
+                  (money ? money.outstandingAmount : outstanding) > 0
+                    ? "text-red-500"
+                    : "text-emerald-600"
                 }
               >
-                {formatCurrency(outstanding)}
+                {formatCurrency(money ? money.outstandingAmount : outstanding)}
               </span>
             </div>
           </div>
         </div>
       </section>
+
+      {/* Sits under the summary, which is where the decision to bill is actually made;
+          from the top of a month's table the button is a long scroll away. */}
+      {showGenerateBill && (existingBill || canGenerateBill) ? (
+        <section className="rounded-lg border px-3 py-3 sm:px-4">
+          {existingBill ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-neutral-800">
+                  Bill already generated
+                </p>
+
+                <p className="text-xs text-neutral-500">
+                  {existingBill.billNumber} covers {selectedMonthLabel}.
+                </p>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-3">
+                {/* Labelled, because the bill's total rolls in previous due and so
+                    rarely matches the Final Total sitting just above it. */}
+                <div className="text-right">
+                  <p className="text-xs text-neutral-500">Bill total</p>
+
+                  <p className="text-sm font-semibold text-neutral-700">
+                    {formatCurrency(existingBill.grandTotal)}
+                  </p>
+                </div>
+
+                {existingBill.outstandingAmount > 0 &&
+                can(PERMISSIONS.PAYMENT_RECORD) ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() =>
+                      openPayment({
+                        billId: existingBill.id,
+                        customerId,
+                        // Comes back here once the payment is recorded, rather than
+                        // dropping the user on the page behind this modal — and back to
+                        // the month being worked on, not the one the modal opened at.
+                        returnTo: {
+                          customerId,
+                          selectedDate: `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-01`,
+                          ...(outstandingAmount === undefined
+                            ? {}
+                            : { outstandingAmount }),
+                        },
+                      })
+                    }
+                  >
+                    <IndianRupee className="mr-1 h-4 w-4" />
+                    Record Payment
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : confirmingGenerate ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm text-neutral-700">
+                Generate the {selectedMonthLabel} bill?
+              </span>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleGenerateBill}
+                  disabled={generateBill.isPending}
+                >
+                  {generateBill.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Confirm"
+                  )}
+                </Button>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setConfirmingGenerate(false)}
+                  disabled={generateBill.isPending}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm text-neutral-600">
+                Ready to bill {selectedMonthLabel}?
+              </span>
+
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                // Until the lookup lands we cannot say whether a bill exists, and
+                // the server would only reject a second one anyway.
+                disabled={monthMoney.isPending}
+                onClick={() => setConfirmingGenerate(true)}
+              >
+                <ReceiptText className="mr-2 h-4 w-4" />
+                Generate Bill
+              </Button>
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <div className="flex items-start gap-2 rounded-lg border bg-blue-50 px-3 py-3 text-sm text-neutral-600 sm:px-4">
         <Info className="mt-0.5 h-5 w-5 shrink-0 text-[#266699]" />

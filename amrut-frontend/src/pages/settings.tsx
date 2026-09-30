@@ -112,7 +112,7 @@ export default function Settings() {
             </TabsList>
           </div>
 
-          <div className="min-h-0 w-full min-w-0 flex-1 overflow-y-auto hide-scrollbar">
+          <div className="pb-safe min-h-0 w-full min-w-0 flex-1 overflow-y-auto hide-scrollbar">
             {visibleTabs.map((tab) => (
               <TabsContent
                 key={tab.value}

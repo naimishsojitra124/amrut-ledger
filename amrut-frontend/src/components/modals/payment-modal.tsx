@@ -28,6 +28,20 @@ export function PaymentModal() {
   const activeModal = useModalStore((state) => state.activeModal);
   const payment = useModalStore((state) => state.payment);
   const closeModal = useModalStore((state) => state.closeModal);
+  const openFullLedger = useModalStore((state) => state.openFullLedger);
+
+  // Opened from the full ledger during month-end billing, this hands that screen back
+  // instead of leaving the user on the page behind it.
+  const dismiss = () => {
+    const returnTo = payment?.returnTo;
+
+    if (returnTo) {
+      openFullLedger(returnTo);
+      return;
+    }
+
+    closeModal();
+  };
 
   const isOpen = activeModal === "payment" && Boolean(payment);
 
@@ -113,7 +127,7 @@ export function PaymentModal() {
         receivedAt: receivedOn,
       },
       {
-        onSuccess: closeModal,
+        onSuccess: dismiss,
       },
     );
   }
@@ -123,7 +137,7 @@ export function PaymentModal() {
       open
       onOpenChange={(open) => {
         if (!open && !recordPayment.isPending) {
-          closeModal();
+          dismiss();
         }
       }}
     >
@@ -194,7 +208,9 @@ export function PaymentModal() {
                 )}
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium">Payment Received On</label>
+                  <label className="text-sm font-medium">
+                    Payment Received On
+                  </label>
 
                   <DatePicker
                     value={receivedOn}
@@ -204,8 +220,8 @@ export function PaymentModal() {
                   />
 
                   <p className="text-xs text-neutral-500">
-                    Set this to the day the money was taken, so a payment written in the
-                    book first carries the same date here.
+                    Set this to the day the money was taken, so a payment
+                    written in the book first carries the same date here.
                   </p>
                 </div>
 
@@ -310,7 +326,7 @@ export function PaymentModal() {
           <Button
             type="button"
             variant="outline"
-            onClick={closeModal}
+            onClick={dismiss}
             disabled={recordPayment.isPending}
             className="w-full sm:w-auto"
           >

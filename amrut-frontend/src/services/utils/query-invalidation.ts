@@ -16,6 +16,7 @@ const ROOTS = {
 
   bills: ["bills"] as const,
   billList: ["bills", "list"] as const,
+  billMonthSummary: ["bills", "month-summary"] as const,
   billSummary: ["bills", "summary"] as const,
   billDetail: ["bills", "detail"] as const,
   overdueBills: ["bills", "overdue"] as const,
@@ -85,6 +86,7 @@ export async function invalidateOpeningBalanceChanged(
     ROOTS.customerStats,
     ROOTS.bills,
     ROOTS.overdueBills,
+      ROOTS.billMonthSummary,
   ]);
 }
 
@@ -124,6 +126,11 @@ export async function invalidateCustomerLedgerChanged(
     [...ROOTS.customerBills, customerId],
     [...ROOTS.customerStatement, customerId],
     ROOTS.ledgerLastEntry,
+    // An entry inside a billed month moves that bill, so anything showing bill
+    // totals is now out of date too.
+    ROOTS.billList,
+    ROOTS.billSummary,
+      ROOTS.billMonthSummary,
   ]);
 }
 
@@ -141,6 +148,7 @@ export async function invalidateBillGenerated(
     [...ROOTS.customerDetail, customerId],
     [...ROOTS.customerBills, customerId],
     [...ROOTS.customerStatement, customerId],
+      ROOTS.billMonthSummary,
   ]);
 }
 
@@ -166,6 +174,7 @@ export async function invalidatePaymentRecorded(
     ROOTS.customerStats,
 
     [...ROOTS.payments, "list", "bill", billId],
+      ROOTS.billMonthSummary,
   ]);
 }
 

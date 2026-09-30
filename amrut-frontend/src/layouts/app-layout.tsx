@@ -66,7 +66,7 @@ export function AppLayout() {
           </span>
         </header>
 
-        <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <main className="pb-safe scroll-pb-safe min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
           <Outlet />
         </main>
       </div>

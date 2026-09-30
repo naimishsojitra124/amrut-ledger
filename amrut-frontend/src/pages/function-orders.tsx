@@ -36,7 +36,7 @@ export default function FunctionOrders() {
   }
 
   return (
-    <div className="flex w-full flex-col gap-4 overflow-y-auto px-3 py-3 sm:gap-5 sm:px-5 sm:py-4">
+    <div className="flex w-full flex-col gap-4 overflow-y-auto px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:gap-5 sm:px-5 sm:py-4 sm:pb-[calc(1rem+env(safe-area-inset-bottom))]">
       <PageHeader
         title="Function Orders"
         description="Plan multi-day orders, returns, reminders, and printable order bills."

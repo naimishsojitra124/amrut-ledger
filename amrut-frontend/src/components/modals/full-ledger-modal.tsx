@@ -39,7 +39,7 @@ export default function FullLedgerModal() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-5 sm:py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-3 sm:px-5 sm:py-5">
           {open && fullLedger ? (
             <CustomerDailyHistoryTab
               key={`${fullLedger.customerId}-${fullLedger.selectedDate}`}
@@ -47,6 +47,7 @@ export default function FullLedgerModal() {
               initialDate={fullLedger.selectedDate}
               outstandingAmount={fullLedger.outstandingAmount}
               showGenerateBill
+              allowEntryEditing
             />
           ) : null}
         </div>

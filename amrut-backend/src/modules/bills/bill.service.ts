@@ -18,10 +18,12 @@ import type {
   BillListQuery,
   BillListResponse,
   BillPaymentSummaryResponse,
+  BillRecalculationResult,
   BillResponse,
   BillSummaryResponse,
   CreatePaymentRequest,
   CustomerBillMonthParams,
+  CustomerMonthSummaryResponse,
   CustomerIdParams,
   CustomerPaymentsParams,
   GenerateBillRequest,
@@ -344,12 +346,8 @@ export function selectBillsToCarryForward<
 }
 
 /** Whole-rupee total of the balances being carried forward. */
-export function sumCarriedForward(
-  bills: { outstandingAmount: number }[],
-): number {
-  return toRupees(
-    bills.reduce((sum, bill) => sum + Number(bill.outstandingAmount ?? 0), 0),
-  );
+export function sumCarriedForward(bills: { outstandingAmount: number }[]): number {
+  return toRupees(bills.reduce((sum, bill) => sum + Number(bill.outstandingAmount ?? 0), 0));
 }
 
 export async function getBills(
@@ -479,6 +477,82 @@ export async function getCustomerBillByMonth(
   return normalizeBillResponse(bill, await loadBillPaymentSummary(prisma, bill.id));
 }
 
+/**
+ * What a month owes, whether or not it has been billed yet.
+ *
+ * The ledger screen used to show only what was bought that month, with "Previous Due"
+ * and "Paid" as dashes, so an opening outstanding — or anything unpaid from an earlier
+ * month — never reached the final total and the screen disagreed with the bill.
+ *
+ * Where a bill exists it is the authority: generating it already moved earlier balances
+ * onto it, so re-deriving them here would read those now-cleared bills as zero. Where one
+ * does not, this previews exactly what generating would produce, using the same two
+ * helpers generation uses.
+ */
+export async function getCustomerMonthSummary(
+  app: FastifyInstance,
+  params: CustomerBillMonthParams,
+): Promise<CustomerMonthSummaryResponse> {
+  const prisma = getPrisma(app);
+  const { customerId, month, year } = params;
+
+  const monthStart = new Date(Date.UTC(year, month - 1, 1));
+  const monthEnd = new Date(Date.UTC(year, month, 1));
+
+  const [ledgers, bill] = await Promise.all([
+    prisma.dailyLedger.findMany({
+      where: { customerId, ledgerDate: { gte: monthStart, lt: monthEnd } },
+      orderBy: { ledgerDate: "asc" },
+    }),
+    prisma.bill.findUnique({
+      where: { customerId_month_year: { customerId, month, year } },
+    }),
+  ]);
+
+  const { currentCharges } = summariseLedgersForBill(ledgers);
+
+  if (bill) {
+    return {
+      month,
+      year,
+      currentCharges,
+      previousDue: toRupees(Number(bill.previousDue ?? 0)),
+      totalPaid: toRupees(Number(bill.totalPaid ?? 0)),
+      grandTotal: toRupees(Number(bill.grandTotal ?? 0)),
+      outstandingAmount: toRupees(Number(bill.outstandingAmount ?? 0)),
+      billId: bill.id,
+      billNumber: bill.billNumber,
+      billVersion: bill.billVersion ?? 1,
+    };
+  }
+
+  const openBills = await prisma.bill.findMany({
+    where: { customerId, outstandingAmount: { gt: 0 } },
+    select: { id: true, month: true, year: true, outstandingAmount: true },
+  });
+
+  // Reaching here means no bill exists for the month, so this previews what generating
+  // one would carry: every earlier bill still owed, an opening outstanding included.
+  const previousDue = sumCarriedForward(
+    selectBillsToCarryForward(openBills, month, year),
+  );
+
+  const grandTotal = currentCharges + previousDue;
+
+  return {
+    month,
+    year,
+    currentCharges,
+    previousDue,
+    totalPaid: 0,
+    grandTotal,
+    outstandingAmount: grandTotal,
+    billId: null,
+    billNumber: null,
+    billVersion: null,
+  };
+}
+
 export async function getBillPayments(
   app: FastifyInstance,
   billId: string,
@@ -600,90 +674,46 @@ export async function getOverdueBills(app: FastifyInstance) {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const bills = await getPrisma(app).bill.findMany({
-    where: { status: { in: ["unpaid", "partial"] }, outstandingAmount: { gt: 0 }, dueDate: { lt: today } },
-    include: { customer: true }, orderBy: { dueDate: "asc" },
+    where: {
+      status: { in: ["unpaid", "partial"] },
+      outstandingAmount: { gt: 0 },
+      dueDate: { lt: today },
+    },
+    include: { customer: true },
+    orderBy: { dueDate: "asc" },
   });
   const items = bills.map((bill: any) => ({
-    id: bill.id, billNumber: bill.billNumber, customerId: bill.customerId, customerName: bill.customer.fullName,
-    mobileNumber: bill.customer.mobileNumber, dueDate: bill.dueDate!.toISOString(), outstandingAmount: bill.outstandingAmount,
+    id: bill.id,
+    billNumber: bill.billNumber,
+    customerId: bill.customerId,
+    customerName: bill.customer.fullName,
+    mobileNumber: bill.customer.mobileNumber,
+    dueDate: bill.dueDate!.toISOString(),
+    outstandingAmount: bill.outstandingAmount,
     daysOverdue: Math.floor((today.getTime() - bill.dueDate!.getTime()) / 86_400_000),
   }));
-  const inRange = (from: number, to: number) => items.filter((item: any) => item.daysOverdue >= from && item.daysOverdue <= to).length;
-  return { items, summary: { count: items.length, outstandingAmount: items.reduce((sum: number, item: any) => sum + item.outstandingAmount, 0), days1to30: inRange(1, 30), days31to60: inRange(31, 60), days61plus: items.filter((item: any) => item.daysOverdue >= 61).length } };
+  const inRange = (from: number, to: number) =>
+    items.filter((item: any) => item.daysOverdue >= from && item.daysOverdue <= to).length;
+  return {
+    items,
+    summary: {
+      count: items.length,
+      outstandingAmount: items.reduce((sum: number, item: any) => sum + item.outstandingAmount, 0),
+      days1to30: inRange(1, 30),
+      days31to60: inRange(31, 60),
+      days61plus: items.filter((item: any) => item.daysOverdue >= 61).length,
+    },
+  };
 }
 
-export async function generateBill(
-  app: FastifyInstance,
-  customerId: string,
-  input: GenerateBillRequest,
-  performedById: string,
-): Promise<BillResponse> {
-  const prisma = getPrisma(app);
-
-  const { month, year } = input;
-
-  const existingBill = await prisma.bill.findUnique({
-    where: {
-      customerId_month_year: {
-        customerId,
-        month,
-        year,
-      },
-    },
-  });
-
-  if (existingBill) {
-    throw createHttpError(
-      409,
-      existingBill.isOpeningBalance
-        ? `An opening balance is already recorded for ${formatBillPeriod(month, year)}. Generate this bill for a later month.`
-        : `Bill already exists for ${formatBillPeriod(month, year)}`,
-    );
-  }
-
-  const customer = await prisma.customer.findUnique({
-    where: { id: customerId },
-  });
-
-  if (!customer) {
-    throw createHttpError(404, "Customer not found");
-  }
-
-  const monthStart = new Date(Date.UTC(year, month - 1, 1));
-  const monthEnd = new Date(Date.UTC(year, month, 1));
-
-  const ledgers = await prisma.dailyLedger.findMany({
-    where: {
-      customerId,
-      ledgerDate: {
-        gte: monthStart,
-        lt: monthEnd,
-      },
-    },
-    orderBy: {
-      ledgerDate: "asc",
-    },
-  });
-
-  const cardAssignment = await prisma.cardAssignment.findFirst({
-    where: {
-      customerId,
-      assignedAt: {
-        lt: monthEnd,
-      },
-    },
-    orderBy: {
-      assignedAt: "desc",
-    },
-    include: {
-      card: true,
-    },
-  });
-
-  if (!cardAssignment) {
-    throw createHttpError(400, "Customer does not have a card assignment for this billing period");
-  }
-
+/**
+ * Rolls a month's ledgers into the lines a bill is made of.
+ *
+ * Extracted so that recalculating an existing bill runs the very same arithmetic as
+ * generating one: if these ever diverged, a corrected bill would quietly disagree with
+ * the bill it replaced.
+ */
+export function summariseLedgersForBill(ledgers: { entries?: unknown }[]) {
   /**
    * Aggregate milk by milk type + rate.
    *
@@ -787,11 +817,107 @@ export async function generateBill(
     amount: toRupees(item.amount),
   }));
 
-  const totalMilkLitres = Math.round(milkSummary.reduce((sum, item) => sum + item.litres, 0) * 100) / 100;
+  const totalMilkLitres =
+    Math.round(milkSummary.reduce((sum, item) => sum + item.litres, 0) * 100) / 100;
 
   const otherItemsTotal = toRupees(otherItems.reduce((sum, item) => sum + item.amount, 0));
 
   const totalItemsCount = otherItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  const currentCharges = toRupees(
+    milkSummary.reduce((sum, item) => sum + item.amount, 0) + otherItemsTotal,
+  );
+
+  return {
+    milkSummary,
+    otherItems,
+    totalMilkLitres,
+    otherItemsTotal,
+    totalItemsCount,
+    currentCharges,
+  };
+}
+
+export async function generateBill(
+  app: FastifyInstance,
+  customerId: string,
+  input: GenerateBillRequest,
+  performedById: string,
+): Promise<BillResponse> {
+  const prisma = getPrisma(app);
+
+  const { month, year } = input;
+
+  const existingBill = await prisma.bill.findUnique({
+    where: {
+      customerId_month_year: {
+        customerId,
+        month,
+        year,
+      },
+    },
+  });
+
+  if (existingBill) {
+    throw createHttpError(
+      409,
+      existingBill.isOpeningBalance
+        ? `An opening balance is already recorded for ${formatBillPeriod(month, year)}. Generate this bill for a later month.`
+        : `Bill already exists for ${formatBillPeriod(month, year)}`,
+    );
+  }
+
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+  });
+
+  if (!customer) {
+    throw createHttpError(404, "Customer not found");
+  }
+
+  const monthStart = new Date(Date.UTC(year, month - 1, 1));
+  const monthEnd = new Date(Date.UTC(year, month, 1));
+
+  const ledgers = await prisma.dailyLedger.findMany({
+    where: {
+      customerId,
+      ledgerDate: {
+        gte: monthStart,
+        lt: monthEnd,
+      },
+    },
+    orderBy: {
+      ledgerDate: "asc",
+    },
+  });
+
+  const cardAssignment = await prisma.cardAssignment.findFirst({
+    where: {
+      customerId,
+      assignedAt: {
+        lt: monthEnd,
+      },
+    },
+    orderBy: {
+      assignedAt: "desc",
+    },
+    include: {
+      card: true,
+    },
+  });
+
+  if (!cardAssignment) {
+    throw createHttpError(400, "Customer does not have a card assignment for this billing period");
+  }
+
+  const {
+    milkSummary,
+    otherItems,
+    totalMilkLitres,
+    otherItemsTotal,
+    totalItemsCount,
+    currentCharges,
+  } = summariseLedgersForBill(ledgers);
 
   /**
    * Unpaid balances from earlier bills roll into this one.
@@ -811,10 +937,6 @@ export async function generateBill(
   const earlierUnpaidBills = selectBillsToCarryForward(openBills, month, year);
 
   const previousDue = sumCarriedForward(earlierUnpaidBills);
-
-  const currentCharges = toRupees(
-    milkSummary.reduce((sum, item) => sum + item.amount, 0) + otherItemsTotal,
-  );
 
   const grandTotal = currentCharges + previousDue;
 
@@ -920,6 +1042,141 @@ async function getReceiptNumber(tx: TransactionClient, year: number) {
 
 // A payment written in the physical book days earlier should carry the day it was taken,
 // not the day someone got round to typing it in.
+/**
+ * What is still owed on a bill, and what to call it, once its total has moved.
+ *
+ * A correction downwards can leave a customer having paid more than they now owe. The
+ * overpayment stays visible as `totalPaid` exceeding `grandTotal` rather than being
+ * silently absorbed, so it can be refunded or carried deliberately.
+ */
+export function deriveBillSettlement(
+  grandTotal: number,
+  totalPaid: number,
+): { outstandingAmount: number; status: BillStatus } {
+  const outstandingAmount = Math.max(0, grandTotal - totalPaid);
+
+  if (outstandingAmount === 0) return { outstandingAmount, status: "paid" };
+
+  return {
+    outstandingAmount,
+    status: totalPaid > 0 ? "partial" : "unpaid",
+  };
+}
+
+/**
+ * Brings an already-generated bill back in line with its month's ledgers.
+ *
+ * A bill is a snapshot taken the moment it is generated. When an entry for that month is
+ * added, corrected or removed afterwards — which is routine at month end, reconciling
+ * against the customer's card — the snapshot silently stops matching the ledger it claims
+ * to summarise. This re-runs the same arithmetic and moves the bill on.
+ *
+ * What it deliberately does NOT touch:
+ *  - `previousDue` and the carry-forward it came from. Generating the bill already moved
+ *    those balances off the earlier bills; re-deriving them here would move them twice.
+ *  - A bill whose own balance has since been carried onto a later bill. Changing its total
+ *    would leave that later bill's `previousDue` describing a number that no longer exists.
+ *  - Payments. They stay exactly as recorded; only what is still outstanding is re-derived.
+ */
+export async function recalculateBillForPeriod(
+  app: FastifyInstance,
+  customerId: string,
+  month: number,
+  year: number,
+  performedById: string,
+): Promise<BillRecalculationResult> {
+  const prisma = getPrisma(app);
+
+  const bill = await prisma.bill.findUnique({
+    where: { customerId_month_year: { customerId, month, year } },
+  });
+
+  if (!bill) return { status: "no-bill" };
+
+  // An opening balance carries no milk or item lines to recompute.
+  if (bill.isOpeningBalance) return { status: "skipped-opening-balance" };
+
+  if (bill.carriedForwardToBillId) {
+    app.log.warn(
+      { billNumber: bill.billNumber, customerId, month, year },
+      "bill recalculation skipped: balance already carried onto a later bill",
+    );
+
+    return { status: "skipped-carried-forward", billNumber: bill.billNumber };
+  }
+
+  const monthStart = new Date(Date.UTC(year, month - 1, 1));
+  const monthEnd = new Date(Date.UTC(year, month, 1));
+
+  const ledgers = await prisma.dailyLedger.findMany({
+    where: { customerId, ledgerDate: { gte: monthStart, lt: monthEnd } },
+    orderBy: { ledgerDate: "asc" },
+  });
+
+  const summary = summariseLedgersForBill(ledgers);
+
+  const previousDue = toRupees(Number(bill.previousDue ?? 0));
+  const previousTotal = toRupees(Number(bill.grandTotal ?? 0));
+  const totalPaid = toRupees(Number(bill.totalPaid ?? 0));
+
+  const grandTotal = summary.currentCharges + previousDue;
+
+  if (grandTotal === previousTotal) return { status: "unchanged", billNumber: bill.billNumber };
+
+  const { outstandingAmount, status } = deriveBillSettlement(grandTotal, totalPaid);
+
+  const billVersion = (bill.billVersion ?? 1) + 1;
+
+  await prisma.$transaction(async (tx: TransactionClient) => {
+    await tx.bill.update({
+      where: { id: bill.id },
+      data: {
+        totalMilkLitres: summary.totalMilkLitres,
+        milkSummary: summary.milkSummary as never,
+        totalItemsCount: summary.totalItemsCount,
+        otherItems: summary.otherItems as never,
+        otherItemsTotal: summary.otherItemsTotal,
+        grandTotal,
+        outstandingAmount,
+        status,
+        billVersion,
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        customerId,
+        type: "bill_updated",
+        title: `Bill ${bill.billNumber} updated after ${formatBillPeriod(month, year)} entries changed`,
+        details: [
+          change(AUDIT_FIELD.billNumber, "", bill.billNumber),
+          moneyChange(AUDIT_FIELD.billTotal, previousTotal, grandTotal),
+          moneyChange(
+            AUDIT_FIELD.billCurrentCharges,
+            previousTotal - previousDue,
+            summary.currentCharges,
+          ),
+        ],
+        performedById,
+        relatedEntityType: "bill",
+        relatedEntityId: bill.id,
+      },
+    });
+  });
+
+  app.log.info(
+    { billNumber: bill.billNumber, previousTotal, grandTotal, billVersion },
+    "bill recalculated after a ledger change",
+  );
+
+  return {
+    status: "updated",
+    billNumber: bill.billNumber,
+    previousTotal,
+    newTotal: grandTotal,
+  };
+}
+
 export function resolveReceivedAt(dateString: string | undefined): Date | undefined {
   if (!dateString) return undefined;
 
@@ -1061,9 +1318,7 @@ export async function recordPayment(
           change(AUDIT_FIELD.receiptNumber, "", receiptNumber),
           moneyChange(AUDIT_FIELD.amountReceived, null, amount),
           change(AUDIT_FIELD.paymentMethod, "", formatPaymentMethod(input.paymentMethod)),
-          ...(depositUsed > 0
-            ? [moneyChange(AUDIT_FIELD.depositApplied, null, depositUsed)]
-            : []),
+          ...(depositUsed > 0 ? [moneyChange(AUDIT_FIELD.depositApplied, null, depositUsed)] : []),
           moneyChange(AUDIT_FIELD.outstanding, outstanding, Math.max(0, newOutstanding)),
         ],
         performedById,
@@ -1092,15 +1347,32 @@ export async function recordPayment(
   return normalizePayment(payment);
 }
 
-export async function reversePayment(app: FastifyInstance, paymentId: string, reason: string, performedById: string) {
+export async function reversePayment(
+  app: FastifyInstance,
+  paymentId: string,
+  reason: string,
+  performedById: string,
+) {
   const prisma = getPrisma(app);
   const payment = await prisma.$transaction(async (tx: TransactionClient) => {
-    const existing = await tx.payment.findUnique({ where: { id: paymentId }, include: { bill: true } });
+    const existing = await tx.payment.findUnique({
+      where: { id: paymentId },
+      include: { bill: true },
+    });
     if (!existing) throw createHttpError(404, "Payment not found");
     if (existing.reversedAt) throw createHttpError(409, "Payment is already reversed");
 
-    const laterBill = await tx.bill.findFirst({ where: { customerId: existing.customerId, OR: [{ year: { gt: existing.bill.year } }, { year: existing.bill.year, month: { gt: existing.bill.month } }] } });
-    if (laterBill) throw createHttpError(409, "Reverse this payment before generating a later bill");
+    const laterBill = await tx.bill.findFirst({
+      where: {
+        customerId: existing.customerId,
+        OR: [
+          { year: { gt: existing.bill.year } },
+          { year: existing.bill.year, month: { gt: existing.bill.month } },
+        ],
+      },
+    });
+    if (laterBill)
+      throw createHttpError(409, "Reverse this payment before generating a later bill");
 
     const creditedAmount = toRupees(existing.amount + (existing.depositUsed ?? 0));
     const outstandingAmount = toRupees(existing.bill.outstandingAmount + creditedAmount);
@@ -1155,11 +1427,7 @@ export async function reversePayment(app: FastifyInstance, paymentId: string, re
           change(AUDIT_FIELD.receiptNumber, "", existing.receiptNumber),
           moneyChange(AUDIT_FIELD.amountReceived, creditedAmount, 0),
           change(AUDIT_FIELD.reason, "", reason),
-          moneyChange(
-            AUDIT_FIELD.outstanding,
-            existing.bill.outstandingAmount,
-            outstandingAmount,
-          ),
+          moneyChange(AUDIT_FIELD.outstanding, existing.bill.outstandingAmount, outstandingAmount),
           ...(existing.depositUsed > 0
             ? [moneyChange(AUDIT_FIELD.depositBalance, depositBefore, depositAfter)]
             : []),

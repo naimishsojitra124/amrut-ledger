@@ -12,6 +12,25 @@ body,
   overflow: hidden;
 }
 
+/*
+ * Safari on iOS, and Chrome, Edge, Brave and DuckDuckGo on iOS, put their toolbar at
+ * the bottom of the window and draw it over the page. Anything sitting at the end of a
+ * scroll container — the View Full Ledger button, a form's submit, the last table row —
+ * ends up behind it and cannot be reached.
+ *
+ * env(safe-area-inset-bottom) is that strip's height. It reports 0 on browsers with a
+ * top toolbar and on desktop, so this costs those nothing. It needs viewport-fit=cover
+ * on the viewport meta to report anything at all.
+ */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* For scroll containers, where the inset has to clear the content rather than the box. */
+@utility scroll-pb-safe {
+  scroll-padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 button {
   cursor: pointer;
 }

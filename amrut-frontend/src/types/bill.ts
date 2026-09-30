@@ -244,3 +244,19 @@ export interface CreatePaymentRequest {
   /** yyyy-mm-dd the payment was received; today when omitted. */
   receivedAt?: string;
 }
+
+/** A month's position whether or not it has been billed, so the ledger and the bill agree. */
+export interface CustomerMonthSummaryResponse {
+  month: number;
+  year: number;
+  /** What was bought in this month, from its ledgers. */
+  currentCharges: number;
+  /** Unpaid balances from before this month, including any opening outstanding. */
+  previousDue: number;
+  totalPaid: number;
+  grandTotal: number;
+  outstandingAmount: number;
+  billId: string | null;
+  billNumber: string | null;
+  billVersion: number | null;
+}

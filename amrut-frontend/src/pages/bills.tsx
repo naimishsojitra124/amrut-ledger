@@ -25,7 +25,7 @@ export default function Bills() {
   }
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col gap-4 overflow-y-auto px-3 py-3 sm:gap-5 sm:px-5">
+    <div className="flex h-full min-h-0 w-full flex-col gap-4 overflow-y-auto px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:gap-5 sm:px-5">
       <PageHeader
         title="Bills"
         description="View bills, record payments and manage outstanding bills for all customers."
