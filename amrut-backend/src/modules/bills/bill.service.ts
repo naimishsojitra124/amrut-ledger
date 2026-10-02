@@ -671,6 +671,8 @@ export async function getBillsPendingGeneration(
     year,
     totalPending: items.length,
     estimatedTotal: items.reduce((sum, item) => sum + item.estimatedTotal, 0),
+    currentChargesTotal: items.reduce((sum, item) => sum + item.currentCharges, 0),
+    previousDueTotal: items.reduce((sum, item) => sum + item.previousDue, 0),
     items,
   };
 }

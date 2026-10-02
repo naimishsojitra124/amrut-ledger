@@ -262,6 +262,11 @@ export interface PendingBillGenerationResponse {
   month: number;
   year: number;
   totalPending: number;
+  /** What these bills will total: this month's charges plus anything carried in. */
   estimatedTotal: number;
+  /** Of that, what the month itself is worth. */
+  currentChargesTotal: number;
+  /** Of that, what was already billed earlier and is only being carried forward. */
+  previousDueTotal: number;
   items: PendingBillGenerationItem[];
 }

@@ -19,6 +19,7 @@ const ROOTS = {
   billMonthSummary: ["bills", "month-summary"] as const,
   billSummary: ["bills", "summary"] as const,
   billDetail: ["bills", "detail"] as const,
+  billPendingGeneration: ["bills", "pending-generation"] as const,
   overdueBills: ["bills", "overdue"] as const,
 
   payments: ["payments"] as const,
@@ -130,6 +131,7 @@ export async function invalidateCustomerLedgerChanged(
     // totals is now out of date too.
     ROOTS.billList,
     ROOTS.billSummary,
+    ROOTS.billPendingGeneration,
       ROOTS.billMonthSummary,
   ]);
 }
@@ -142,6 +144,7 @@ export async function invalidateBillGenerated(
   return invalidate(queryClient, [
     ROOTS.billList,
     ROOTS.billSummary,
+    ROOTS.billPendingGeneration,
     [...ROOTS.billDetail, billId],
     ROOTS.customerList,
     ROOTS.customerStats,

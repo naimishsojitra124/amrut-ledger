@@ -426,11 +426,32 @@ export default function CustomerDailyHistoryTab({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 sm:hidden">
+      {/*
+        The same four columns as the table, sized for a phone. Milk and product share one
+        column only in the sense that they sit side by side; mixing both into a single
+        cell meant having to read every line to work out which was which.
+      */}
+      <div className="overflow-hidden rounded-lg border sm:hidden">
+        <div className="flex bg-[#F6F6F6] text-[11px] font-semibold text-neutral-600">
+          <div className="w-[58px] shrink-0 border-r px-1.5 py-2 text-center">
+            Date
+          </div>
+
+          <div className="min-w-0 flex-1 border-r px-1.5 py-2 text-center">
+            Milk
+          </div>
+
+          <div className="min-w-0 flex-1 border-r px-1.5 py-2 text-center">
+            Product
+          </div>
+
+          <div className="w-[68px] shrink-0 px-1.5 py-2 text-center">Total</div>
+        </div>
+
         {isPending ? (
-          <div className="space-y-2">
+          <div className="space-y-2 p-2">
             {[0, 1, 2, 3].map((row) => (
-              <Skeleton key={row} className="h-20 w-full rounded-lg" />
+              <Skeleton key={row} className="h-12 w-full rounded" />
             ))}
           </div>
         ) : isError ? (
@@ -454,15 +475,14 @@ export default function CustomerDailyHistoryTab({
             return (
               <div
                 key={item?.id ?? dateKey}
-                className={`rounded-lg border ${
+                className={`border-t ${
                   hasEntries || isNoPurchase ? "bg-white" : "bg-neutral-50/60"
                 }`}
               >
-                <div className="flex items-start gap-3 px-3 py-2.5">
-                  {/* A fixed width so every date lines up down the list. */}
-                  <div className="w-14 shrink-0">
+                <div className="flex items-stretch">
+                  <div className="w-[58px] shrink-0 border-r px-1.5 py-2">
                     <div
-                      className={`text-sm font-semibold ${
+                      className={`text-xs font-semibold ${
                         hasEntries
                           ? "text-neutral-900"
                           : isNoPurchase
@@ -473,57 +493,57 @@ export default function CustomerDailyHistoryTab({
                       {DATE_FORMATTER.format(date)}
                     </div>
 
-                    <div className="text-xs text-neutral-500">
+                    <div className="text-[11px] text-neutral-500">
                       {WEEKDAY_FORMATTER.format(date)}
                     </div>
                   </div>
 
-                  <div className="min-w-0 flex-1 space-y-1">
-                    {milkEntries.map((milk, index) => (
-                      <div
-                        key={`${dateKey}-milk-${milk.milkTypeId}-${index}`}
-                        className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm"
-                      >
-                        <span className="font-semibold text-neutral-800">
-                          {milk.litres.toFixed(2)} Ltr
-                        </span>
+                  <div className="min-w-0 flex-1 space-y-1 border-r px-1.5 py-2">
+                    {milkEntries.length ? (
+                      milkEntries.map((milk, index) => (
+                        <div key={`${dateKey}-milk-${milk.milkTypeId}-${index}`}>
+                          <Badge
+                            variant="secondary"
+                            className="h-auto min-h-5 bg-blue-50 px-1.5 leading-tight font-semibold wrap-anywhere whitespace-normal text-[#266699]"
+                          >
+                            {milk.milkTypeName}
+                          </Badge>
 
-                        <Badge
-                          variant="secondary"
-                          className="h-auto min-h-5 bg-blue-50 leading-tight font-semibold wrap-anywhere whitespace-normal text-[#266699]"
-                        >
-                          {milk.milkTypeName}
-                        </Badge>
-                      </div>
-                    ))}
-
-                    {productEntries.map((product, index) => (
-                      <div
-                        key={`${dateKey}-product-${product.itemName}-${index}`}
-                        className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm"
-                      >
-                        <span className="font-semibold whitespace-nowrap text-neutral-800">
-                          {formatCurrency(productLineAmount(product))}
-                        </span>
-
-                        <span className="wrap-anywhere text-neutral-600">
-                          {product.itemName}
-                        </span>
-                      </div>
-                    ))}
-
-                    {!hasEntries ? (
-                      <span
-                        className={`text-sm font-medium ${
-                          isNoPurchase ? "text-emerald-700" : "text-neutral-400"
-                        }`}
-                      >
-                        {isNoPurchase ? "No purchase" : "Not recorded"}
+                          <div className="text-xs font-medium text-neutral-700">
+                            {milk.litres.toFixed(2)} Ltr
+                          </div>
+                        </div>
+                      ))
+                    ) : isNoPurchase ? (
+                      <span className="text-xs font-medium text-emerald-700">
+                        No purchase
                       </span>
-                    ) : null}
+                    ) : (
+                      <span className="text-xs text-neutral-400">&mdash;</span>
+                    )}
                   </div>
 
-                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <div className="min-w-0 flex-1 space-y-1 border-r px-1.5 py-2">
+                    {productEntries.length ? (
+                      productEntries.map((product, index) => (
+                        <div
+                          key={`${dateKey}-product-${product.itemName}-${index}`}
+                          className="text-xs leading-snug"
+                        >
+                          <span className="font-semibold whitespace-nowrap text-neutral-800">
+                            {formatCurrency(productLineAmount(product))}
+                          </span>{" "}
+                          <span className="wrap-anywhere text-neutral-600">
+                            {product.itemName}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-xs text-neutral-400">&mdash;</span>
+                    )}
+                  </div>
+
+                  <div className="flex w-[68px] shrink-0 flex-col items-center gap-1.5 px-1.5 py-2">
                     <span
                       className={`text-sm font-semibold whitespace-nowrap ${
                         hasEntries ? "text-neutral-900" : "text-neutral-400"
@@ -568,7 +588,7 @@ export default function CustomerDailyHistoryTab({
             );
           })
         ) : (
-          <div className="rounded-lg border px-3 py-8 text-center text-sm text-neutral-500">
+          <div className="border-t px-3 py-8 text-center text-sm text-neutral-500">
             No purchase history available for this month.
           </div>
         )}

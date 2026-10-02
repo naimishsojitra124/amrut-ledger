@@ -59,7 +59,10 @@ export default function BillsPendingGeneration() {
           </p>
 
           <p className="mt-0.5 text-sm text-amber-800">
-            {formatCurrency(data.estimatedTotal)} not yet billed
+            {formatCurrency(data.estimatedTotal)} to bill
+            {data.previousDueTotal > 0
+              ? `, incl. ${formatCurrency(data.previousDueTotal)} carried from earlier bills`
+              : ""}
           </p>
         </div>
 
@@ -70,6 +73,8 @@ export default function BillsPendingGeneration() {
           className="shrink-0 border-amber-300 bg-white/70 text-amber-900 hover:bg-white"
           onClick={() => setExpanded((open) => !open)}
           aria-expanded={expanded}
+          // The label beside the chevron is hidden on a phone, leaving the button unnamed.
+          aria-label={expanded ? "Hide the pending cards" : "Show the pending cards"}
         >
           {expanded ? (
             <ChevronUp className="h-4 w-4" />
@@ -110,12 +115,15 @@ export default function BillsPendingGeneration() {
                     {item.customerName}
                   </span>
 
+                  {/* The row total is what the bill will say, which for a customer with
+                      an older balance is well above the month itself — spelling the two
+                      apart stops that reading as a wrong figure. */}
                   <span className="block text-xs text-neutral-600">
                     {item.entryDays > 0
                       ? `${item.entryDays} ${item.entryDays === 1 ? "day" : "days"} recorded`
                       : "Nothing bought"}
                     {item.previousDue > 0
-                      ? ` · ${formatCurrency(item.previousDue)} brought forward`
+                      ? ` · ${formatCurrency(item.currentCharges)} this month + ${formatCurrency(item.previousDue)} earlier`
                       : ""}
                   </span>
                 </span>
