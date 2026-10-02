@@ -1,4 +1,5 @@
 import CustomerFormModal from "@/components/modals/customer-form-modal";
+import FullLedgerModal from "@/components/modals/full-ledger-modal";
 import { PaymentModal } from "./payment-modal";
 import { GenerateBillModal } from "./generate-bill-modal";
 import { OutstandingLedgerModal } from "./outstanding-ledger-modal";
@@ -17,6 +18,7 @@ export function AppModals() {
       <PaymentModal />
       <GenerateBillModal />
       <OutstandingLedgerModal />
+      <FullLedgerModal />
       <MilkTypeFormModal />
       <ProductSuggestionFormModal />
       <DeleteFunctionOrderConfirmationModal />

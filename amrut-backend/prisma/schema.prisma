@@ -520,8 +520,10 @@ model AuditLog {
   customer    Customer @relation(fields: [customerId], references: [id])
   performedBy User     @relation("AuditLogPerformedBy", fields: [performedById], references: [id])
 
+  // The only read is the customer activity tab: customer, newest first, sometimes
+  // narrowed by type. This one index serves it. Indexes by `type` alone and by related
+  // entity were never queried, and on the largest collection in the database they cost a
+  // write on every ledger entry for nothing.
   @@index([customerId, performedAt])
-  @@index([relatedEntityType, relatedEntityId])
-  @@index([type])
   @@map("audit_logs")
 }

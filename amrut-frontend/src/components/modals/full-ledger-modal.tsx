@@ -6,6 +6,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import CustomerDailyHistoryTab from "@/components/customers/tabs/customer-daily-history-tab";
+import { Badge } from "@/components/ui/badge";
+import { useCustomerQuery } from "@/services/customer.service";
 import { useModalStore } from "@/store/modal.store";
 
 export default function FullLedgerModal() {
@@ -14,6 +16,13 @@ export default function FullLedgerModal() {
   const closeModal = useModalStore((state) => state.closeModal);
 
   const open = activeModal === "fullLedger" && Boolean(fullLedger);
+
+  // Opened from a card number on one screen and a customer row on another, the modal
+  // said only "Full Customer Ledger" — there was no way to tell whose month you were
+  // about to bill. Fetched by id, so it is right whichever screen opened it.
+  const { data: customer } = useCustomerQuery(
+    open && fullLedger ? fullLedger.customerId : null,
+  );
 
   return (
     <Dialog
@@ -32,6 +41,23 @@ export default function FullLedgerModal() {
           <DialogTitle className="text-base font-semibold text-[#266699] sm:text-lg">
             Full Customer Ledger
           </DialogTitle>
+
+          {customer ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                variant="secondary"
+                className="h-auto min-h-5 bg-blue-50 leading-tight font-semibold text-[#266699]"
+              >
+                {customer.currentCard
+                  ? `Card ${customer.currentCard.cardNumber}`
+                  : "No card"}
+              </Badge>
+
+              <span className="min-w-0 truncate text-sm font-semibold text-neutral-800">
+                {customer.fullName}
+              </span>
+            </div>
+          ) : null}
 
           <DialogDescription className="text-xs sm:text-sm">
             Review the complete monthly purchase history and totals before

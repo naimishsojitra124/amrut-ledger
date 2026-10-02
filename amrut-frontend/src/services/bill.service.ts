@@ -24,6 +24,7 @@ import type {
   BillListResponse,
   BillResponse,
   BillSummaryResponse,
+  PendingBillGenerationResponse,
   CreatePaymentRequest,
   CustomerMonthSummaryResponse,
   GenerateBillRequest,
@@ -36,6 +37,7 @@ const BILL_ROOT = ["bills"] as const;
 const BILL_LIST_ROOT = [...BILL_ROOT, "list"] as const;
 const BILL_SUMMARY_ROOT = [...BILL_ROOT, "summary"] as const;
 const BILL_DETAIL_ROOT = [...BILL_ROOT, "detail"] as const;
+const BILL_PENDING_ROOT = [...BILL_ROOT, "pending-generation"] as const;
 
 const PAYMENT_ROOT = ["payments"] as const;
 const PAYMENT_LIST_ROOT = [...PAYMENT_ROOT, "list"] as const;
@@ -94,11 +96,25 @@ export const billQueryKeys = {
     ] as const,
 
   detail: (billId: string) => [...BILL_DETAIL_ROOT, billId] as const,
+
+  pendingGeneration: (month: number, year: number) =>
+    [...BILL_PENDING_ROOT, { month, year }] as const,
 };
 
 export const paymentQueryKeys = {
   detail: (paymentId: string) => [...PAYMENT_DETAIL_ROOT, paymentId] as const,
 };
+
+export async function getBillsPendingGeneration(
+  month: number,
+  year: number,
+  signal?: AbortSignal,
+): Promise<PendingBillGenerationResponse> {
+  return request<PendingBillGenerationResponse>("GET", "/bills/pending-generation", {
+    params: { month, year },
+    signal,
+  });
+}
 
 export async function getBills(
   query: BillListQuery = {},
@@ -242,6 +258,23 @@ export const useBillsSummaryQuery = (query: BillListQuery = {}) =>
     staleTime: QUERY_STALE_TIMES.billsSummary,
     gcTime: QUERY_GC_TIMES.standard,
     refetchInterval: 5 * 60_000 + 30_000,
+    ...FINANCIAL_QUERY_BEHAVIOR,
+  });
+
+/** Cards with no bill yet for the month, so a half-finished billing run is visible. */
+export const useBillsPendingGenerationQuery = (
+  month: number,
+  year: number,
+  options?: { enabled?: boolean },
+) =>
+  useQuery({
+    queryKey: billQueryKeys.pendingGeneration(month, year),
+
+    queryFn: ({ signal }) => getBillsPendingGeneration(month, year, signal),
+
+    enabled: options?.enabled ?? true,
+    staleTime: QUERY_STALE_TIMES.billsSummary,
+    gcTime: QUERY_GC_TIMES.standard,
     ...FINANCIAL_QUERY_BEHAVIOR,
   });
 

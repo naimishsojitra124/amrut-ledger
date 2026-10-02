@@ -18,7 +18,8 @@
     "prisma:backfill-entry-ids": "tsx prisma/backfill-ledger-entry-ids.ts",
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
-    "repair:bill-rounding": "tsx prisma/repair-bill-rounding.ts"
+    "repair:bill-rounding": "tsx prisma/repair-bill-rounding.ts",
+    "prune:audit-logs": "tsx prisma/prune-audit-logs.ts"
   },
   "keywords": [],
   "author": "",

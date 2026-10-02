@@ -109,6 +109,7 @@ const auditLogTypeSchema = z.enum([
   "entry_updated",
   "entry_deleted",
   "bill_generated",
+  "bill_updated",
   "opening_balance_set",
   "opening_balance_removed",
   "payment_added",

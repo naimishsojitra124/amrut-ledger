@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { QueryErrorState } from "@/components/common/query-error-state";
 import { DataTableSkeleton } from "@/components/common/data-table-skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -425,7 +426,155 @@ export default function CustomerDailyHistoryTab({
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border">
+      <div className="flex flex-col gap-2 sm:hidden">
+        {isPending ? (
+          <div className="space-y-2">
+            {[0, 1, 2, 3].map((row) => (
+              <Skeleton key={row} className="h-20 w-full rounded-lg" />
+            ))}
+          </div>
+        ) : isError ? (
+          <QueryErrorState
+            error={getApiErrorMessage(error, "Unable to load daily history.")}
+            onRetry={() => void refetch()}
+          />
+        ) : dayRows.length ? (
+          dayRows.map(({ dateKey, date, item }) => {
+            const isEditing = editingDate === dateKey;
+            const hasEntries = Boolean(item && item.entries.length);
+            const isNoPurchase =
+              item?.noPurchase === true && item.entries.length === 0;
+
+            const milkEntries =
+              item?.entries.flatMap((entry) => entry.milkEntries ?? []) ?? [];
+
+            const productEntries =
+              item?.entries.flatMap((entry) => entry.productEntries ?? []) ?? [];
+
+            return (
+              <div
+                key={item?.id ?? dateKey}
+                className={`rounded-lg border ${
+                  hasEntries || isNoPurchase ? "bg-white" : "bg-neutral-50/60"
+                }`}
+              >
+                <div className="flex items-start gap-3 px-3 py-2.5">
+                  {/* A fixed width so every date lines up down the list. */}
+                  <div className="w-14 shrink-0">
+                    <div
+                      className={`text-sm font-semibold ${
+                        hasEntries
+                          ? "text-neutral-900"
+                          : isNoPurchase
+                            ? "text-neutral-700"
+                            : "text-neutral-500"
+                      }`}
+                    >
+                      {DATE_FORMATTER.format(date)}
+                    </div>
+
+                    <div className="text-xs text-neutral-500">
+                      {WEEKDAY_FORMATTER.format(date)}
+                    </div>
+                  </div>
+
+                  <div className="min-w-0 flex-1 space-y-1">
+                    {milkEntries.map((milk, index) => (
+                      <div
+                        key={`${dateKey}-milk-${milk.milkTypeId}-${index}`}
+                        className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm"
+                      >
+                        <span className="font-semibold text-neutral-800">
+                          {milk.litres.toFixed(2)} Ltr
+                        </span>
+
+                        <Badge
+                          variant="secondary"
+                          className="h-auto min-h-5 bg-blue-50 leading-tight font-semibold wrap-anywhere whitespace-normal text-[#266699]"
+                        >
+                          {milk.milkTypeName}
+                        </Badge>
+                      </div>
+                    ))}
+
+                    {productEntries.map((product, index) => (
+                      <div
+                        key={`${dateKey}-product-${product.itemName}-${index}`}
+                        className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm"
+                      >
+                        <span className="font-semibold whitespace-nowrap text-neutral-800">
+                          {formatCurrency(productLineAmount(product))}
+                        </span>
+
+                        <span className="wrap-anywhere text-neutral-600">
+                          {product.itemName}
+                        </span>
+                      </div>
+                    ))}
+
+                    {!hasEntries ? (
+                      <span
+                        className={`text-sm font-medium ${
+                          isNoPurchase ? "text-emerald-700" : "text-neutral-400"
+                        }`}
+                      >
+                        {isNoPurchase ? "No purchase" : "Not recorded"}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <span
+                      className={`text-sm font-semibold whitespace-nowrap ${
+                        hasEntries ? "text-neutral-900" : "text-neutral-400"
+                      }`}
+                    >
+                      {hasEntries || isNoPurchase
+                        ? formatCurrency(item ? getDailyTotal(item) : 0)
+                        : "\u2014"}
+                    </span>
+
+                    {canEditEntries ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={isEditing ? "secondary" : "outline"}
+                        className="h-7 px-2"
+                        aria-label={`${hasEntries ? "Edit" : "Add"} entry for ${DATE_FORMATTER.format(date)}`}
+                        onClick={() =>
+                          setEditingDate(isEditing ? null : dateKey)
+                        }
+                      >
+                        {hasEntries ? (
+                          <Pencil className="h-3.5 w-3.5" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+
+                {isEditing ? (
+                  <div className="border-t bg-neutral-50 p-2">
+                    <LedgerDayEditor
+                      customerId={customerId}
+                      date={dateKey}
+                      onClose={() => setEditingDate(null)}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })
+        ) : (
+          <div className="rounded-lg border px-3 py-8 text-center text-sm text-neutral-500">
+            No purchase history available for this month.
+          </div>
+        )}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-lg border sm:block">
         <Table className="w-full table-fixed">
           <TableHeader className="bg-[#F6F6F6]">
             <TableRow>
@@ -465,7 +614,7 @@ export default function CustomerDailyHistoryTab({
 
           <TableBody>
             {isPending ? (
-              <DataTableSkeleton columns={4} rows={4} />
+              <DataTableSkeleton columns={columnCount} rows={4} />
             ) : isError ? (
               <TableRow>
                 <TableCell colSpan={columnCount} className="p-0">
@@ -535,7 +684,7 @@ export default function CustomerDailyHistoryTab({
                           isNoPurchase ? undefined : "bg-neutral-50/60"
                         }
                       >
-                        <TableCell className="border-r align-top">
+                        <TableCell className="border-r align-top whitespace-normal">
                           <div
                             className={`text-sm font-medium ${
                               isNoPurchase
@@ -565,7 +714,7 @@ export default function CustomerDailyHistoryTab({
                           —
                         </TableCell>
 
-                        <TableCell className="text-center">
+                        <TableCell className="border-r text-center">
                           {isNoPurchase ? (
                             <span className="text-sm text-neutral-600">
                               {formatCurrency(0)}
@@ -596,7 +745,7 @@ export default function CustomerDailyHistoryTab({
                 return (
                   <Fragment key={item.id}>
                     <TableRow>
-                      <TableCell className="border-r align-top">
+                      <TableCell className="border-r align-top whitespace-normal">
                         <div className="text-sm font-medium text-neutral-900">
                           {DATE_FORMATTER.format(date)}
                         </div>
@@ -616,7 +765,7 @@ export default function CustomerDailyHistoryTab({
                               >
                                 <Badge
                                   variant="secondary"
-                                  className="bg-blue-50 font-semibold whitespace-normal text-[#266699]"
+                                  className="h-auto min-h-5 bg-blue-50 leading-tight font-semibold wrap-anywhere whitespace-normal text-[#266699]"
                                 >
                                   {milk.milkTypeName}
                                 </Badge>
@@ -670,7 +819,7 @@ export default function CustomerDailyHistoryTab({
                         )}
                       </TableCell>
 
-                      <TableCell className="border-r align-top text-center">
+                      <TableCell className="border-r align-top text-center whitespace-normal">
                         <span className="text-xs font-medium text-neutral-500">
                           Total
                         </span>

@@ -34,7 +34,6 @@ import { formatDate } from "@/utils/format-date";
 import { useModalStore } from "@/store/modal.store";
 import { usePermissions } from "@/hooks/use-permissions";
 import { PERMISSIONS } from "@/config/permissions";
-import FullLedgerModal from "../modals/full-ledger-modal";
 
 import type { Customer } from "@/types/customer";
 
@@ -882,7 +881,6 @@ export default function QuickEntryLedger({
         </AlertDialogContent>
       </AlertDialog>
 
-      <FullLedgerModal />
     </>
   );
 }

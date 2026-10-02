@@ -4,6 +4,7 @@ import { ReceiptText } from "lucide-react";
 
 import PageHeader from "@/components/common/page-header";
 import BillStatsCards from "@/components/bills/bills-stats-cards";
+import BillsPendingGeneration from "@/components/bills/bills-pending-generation";
 import BillsTable from "@/components/bills/bills-table";
 import BillDetailsDrawer from "@/components/bills/bill-details-drawer";
 
@@ -33,6 +34,8 @@ export default function Bills() {
       />
 
       <BillStatsCards />
+
+      <BillsPendingGeneration />
 
       <BillsTable onViewBill={handleViewBill} />
 

@@ -68,3 +68,9 @@ export const createPaymentSchema = z
 export const reversePaymentSchema = z.object({
   reason: z.string().trim().min(5, "A reversal reason is required").max(500),
 });
+
+// Both required: "which cards still need a bill" is only a question about a given month.
+export const pendingBillGenerationQuerySchema = z.object({
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+});

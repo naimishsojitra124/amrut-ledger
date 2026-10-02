@@ -17,6 +17,7 @@ import { Link } from "react-router-dom";
 
 import { QueryErrorState } from "@/components/common/query-error-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatBusinessMonth, previousBusinessMonth } from "@/config/business";
 import { useAuth } from "@/hooks/use-auth";
 import { useBillsQuery, useBillsSummaryQuery } from "@/services/bill.service";
 import { useCustomerStatsQuery } from "@/services/customer.service";
@@ -83,6 +84,12 @@ export default function Dashboard() {
 
   const customers = useCustomerStatsQuery();
   const bills = useBillsSummaryQuery();
+
+  // Bills go out on the last day of a month and are collected over the first half of the
+  // next, so the month worth reporting on is the one that just closed.
+  const lastMonth = useMemo(() => previousBusinessMonth(), []);
+  const lastMonthLabel = useMemo(() => formatBusinessMonth(lastMonth), [lastMonth]);
+  const lastMonthBills = useBillsSummaryQuery(lastMonth);
 
   const pendingBills = useBillsQuery({
     page: 1,
@@ -174,8 +181,8 @@ export default function Dashboard() {
 
         <Metric
           title="Bills Pending"
-          value={billSummary?.unpaidBills ?? 0}
-          caption="Not yet paid"
+          value={(billSummary?.unpaidBills ?? 0) + (billSummary?.partialBills ?? 0)}
+          caption="Unpaid or part paid"
           icon={FileText}
           iconClassName="bg-orange-50 text-orange-600"
           loading={bills.isPending}
@@ -184,11 +191,76 @@ export default function Dashboard() {
         <Metric
           title="Payments Received"
           value={formatCurrency(billSummary?.totalPaid ?? 0)}
-          caption="This month"
+          caption="All time"
           icon={Wallet}
           iconClassName="bg-emerald-50 text-emerald-600"
           loading={bills.isPending}
         />
+      </section>
+
+      {/* Last month's billing run — what is still to be collected */}
+      <section aria-label={`Billing for ${lastMonthLabel}`} className={CARD_CLASS}>
+        <SectionHeader
+          title={`${lastMonthLabel} Billing`}
+          description="The month just closed, and how much of it is still to come in."
+          action="View bills"
+          to="/bills"
+        />
+
+        {lastMonthBills.isError ? (
+          <QueryErrorState
+            error={lastMonthBills.error ?? undefined}
+            onRetry={() => {
+              void lastMonthBills.refetch();
+            }}
+          />
+        ) : (
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <Metric
+              title="Cards Billed"
+              value={lastMonthBills.data?.totalBills ?? 0}
+              caption={lastMonthLabel}
+              icon={ReceiptText}
+              iconClassName="bg-blue-50 text-blue-600"
+              loading={lastMonthBills.isPending}
+            />
+
+            <Metric
+              title="Total Billed"
+              value={formatCurrency(lastMonthBills.data?.billedAmount ?? 0)}
+              caption={
+                (lastMonthBills.data?.previousDue ?? 0) > 0
+                  ? `incl. ${formatCurrency(lastMonthBills.data?.previousDue ?? 0)} brought forward`
+                  : lastMonthLabel
+              }
+              icon={FileText}
+              iconClassName="bg-emerald-50 text-emerald-600"
+              loading={lastMonthBills.isPending}
+            />
+
+            <Metric
+              title="Collected"
+              value={formatCurrency(lastMonthBills.data?.totalPaid ?? 0)}
+              caption={lastMonthLabel}
+              icon={BadgeIndianRupee}
+              iconClassName="bg-orange-50 text-orange-600"
+              loading={lastMonthBills.isPending}
+            />
+
+            <Metric
+              title="Outstanding"
+              value={formatCurrency(lastMonthBills.data?.outstandingAmount ?? 0)}
+              caption={
+                (lastMonthBills.data?.carriedForwardAmount ?? 0) > 0
+                  ? `${formatCurrency(lastMonthBills.data?.carriedForwardAmount ?? 0)} more moved to a later bill`
+                  : "Still to collect"
+              }
+              icon={Wallet}
+              iconClassName="bg-violet-50 text-violet-600"
+              loading={lastMonthBills.isPending}
+            />
+          </div>
+        )}
       </section>
 
       {/* Upcoming orders */}
@@ -370,7 +442,9 @@ export default function Dashboard() {
 
               <Overview
                 label="Bills pending"
-                value={billSummary?.unpaidBills ?? 0}
+                value={
+                  (billSummary?.unpaidBills ?? 0) + (billSummary?.partialBills ?? 0)
+                }
                 icon={FileText}
               />
 
@@ -387,7 +461,7 @@ export default function Dashboard() {
               />
 
               <Overview
-                label="Bills this month"
+                label="Bills generated"
                 value={billSummary?.totalBills ?? 0}
                 icon={ReceiptText}
               />
@@ -585,25 +659,27 @@ function Metric({
 }) {
   return (
     <div className={CARD_CLASS}>
-      <div className="flex min-w-0 items-center gap-3">
+      {/* Icon above the text on a phone, beside it from `sm`: two of these share a
+          360px row, and a trimmed "Rs 2,84,5..." is not a figure anyone can use. */}
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
         <span
-          className={`grid h-10 w-10 shrink-0 place-items-center rounded-full sm:h-11 sm:w-11 ${iconClassName}`}
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-full sm:h-11 sm:w-11 ${iconClassName}`}
         >
           <Icon className="h-5 w-5" />
         </span>
 
-        <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-slate-500">{title}</p>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-slate-500">{title}</p>
 
           {loading ? (
             <Skeleton className="mt-2 h-7 w-20" />
           ) : (
-            <p className="mt-1 truncate text-xl font-bold text-slate-950 sm:text-2xl">
+            <p className="mt-1 text-lg font-bold whitespace-nowrap text-slate-950 sm:text-2xl">
               {value}
             </p>
           )}
 
-          <p className="mt-1 text-xs text-slate-500">{caption}</p>
+          <p className="mt-1 line-clamp-2 text-xs text-slate-500">{caption}</p>
         </div>
       </div>
     </div>
@@ -624,9 +700,9 @@ function Overview({
       <Icon className="h-5 w-5 shrink-0 text-[#266699]" />
 
       <div className="min-w-0">
-        <p className="truncate text-xs text-slate-500">{label}</p>
+        <p className="text-xs text-slate-500">{label}</p>
 
-        <p className="truncate font-semibold text-slate-900">{value}</p>
+        <p className="font-semibold whitespace-nowrap text-slate-900">{value}</p>
       </div>
     </div>
   );

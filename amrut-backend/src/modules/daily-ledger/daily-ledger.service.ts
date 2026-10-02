@@ -515,7 +515,14 @@ async function resolveProductEntries(
 }
 
 // Logged as a sentence a shop worker can read, never as the raw entry document.
-async function createAuditLog(
+//
+// Ledger rows are by far the most numerous thing in this database — one per customer per
+// day — so each one carries only what cannot be read off the title. The date used to be
+// repeated as a "Ledger date" change with an always-empty old value; every title already
+// ends in that date, and dropping it took roughly a fifth off the collection's biggest
+// group of rows. A row whose entry did not move (toggling "no purchase") stores no change
+// at all rather than "None" to "None".
+export async function createAuditLog(
   prisma: PrismaClient,
   input: {
     customerId: string;
@@ -523,24 +530,28 @@ async function createAuditLog(
     type: "entry_added" | "entry_updated" | "entry_deleted";
     title: string;
     ledgerId: string;
-    ledgerDate: string;
     oldEntry?: unknown;
     newEntry?: unknown;
+    /** Writes nothing when the entry came out the same, for edits that changed nothing. */
+    onlyIfChanged?: boolean;
   },
 ) {
+  const before = describeLedgerEntry(input.oldEntry as never);
+  const after = describeLedgerEntry(input.newEntry as never);
+
+  if (input.onlyIfChanged === true && before === after) {
+    return;
+  }
+
   await prisma.auditLog.create({
     data: {
       customerId: input.customerId,
       type: input.type,
       title: input.title,
-      details: [
-        change(
-          AUDIT_FIELD.entry,
-          describeLedgerEntry(input.oldEntry as never) || "None",
-          describeLedgerEntry(input.newEntry as never) || "None",
-        ),
-        change("Ledger date", "", formatDisplayDate(input.ledgerDate)),
-      ],
+      details:
+        before === after
+          ? []
+          : [change(AUDIT_FIELD.entry, before || "None", after || "None")],
       performedById: input.performedById,
       relatedEntityType: "ledger",
       relatedEntityId: input.ledgerId,
@@ -1030,7 +1041,6 @@ export async function addLedgerEntry(
       type: "entry_added",
       title: `Ledger entry added for ${formatDisplayDate(date)}`,
       ledgerId: result.ledger.id,
-      ledgerDate: date,
       newEntry: entry,
     });
   }
@@ -1147,9 +1157,9 @@ export async function updateLedgerEntry(
     type: "entry_updated",
     title: `Ledger entry updated for ${formatDisplayDate(date)}`,
     ledgerId: result.ledger.id,
-    ledgerDate: date,
     oldEntry: result.oldEntry,
     newEntry: result.nextEntry,
+    onlyIfChanged: true,
   });
 
   return normalizeLedger(result.ledger, await loadLedgerUsers(prisma, result.ledger));
@@ -1204,7 +1214,6 @@ export async function deleteLedgerEntry(
     type: "entry_deleted",
     title: `Ledger entry deleted for ${formatDisplayDate(date)}`,
     ledgerId: result.ledger.id,
-    ledgerDate: date,
     oldEntry: result.removed,
   });
 
@@ -1302,7 +1311,6 @@ export async function setLedgerNoPurchase(
         ? `Marked as no purchase for ${formatDisplayDate(date)}`
         : `No purchase mark removed for ${formatDisplayDate(date)}`,
       ledgerId: result.ledger.id,
-      ledgerDate: date,
     });
   }
 

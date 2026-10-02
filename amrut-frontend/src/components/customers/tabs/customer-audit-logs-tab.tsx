@@ -76,6 +76,9 @@ const ALL_AUDIT_TYPES: AuditLogType[] = [
   "entry_updated",
   "entry_deleted",
   "bill_generated",
+  "bill_updated",
+  "opening_balance_set",
+  "opening_balance_removed",
   "payment_added",
   "payment_reversed",
   "note_added",
@@ -154,6 +157,21 @@ const ACTION_META: Record<AuditLogType, ActionMeta> = {
     label: "Bill Generated",
     tone: "text-blue-600 border-blue-500",
     icon: FileText,
+  },
+  bill_updated: {
+    label: "Bill Updated",
+    tone: "text-amber-600 border-amber-500",
+    icon: FileText,
+  },
+  opening_balance_set: {
+    label: "Opening Balance Set",
+    tone: "text-blue-600 border-blue-500",
+    icon: Wallet,
+  },
+  opening_balance_removed: {
+    label: "Opening Balance Removed",
+    tone: "text-neutral-600 border-neutral-400",
+    icon: Wallet,
   },
   payment_added: {
     label: "Payment Added",

@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import {
   billIdParamSchema,
   billListQuerySchema,
+  pendingBillGenerationQuerySchema,
   createPaymentSchema,
   customerBillMonthParamSchema,
   customerIdParamSchema,
@@ -16,6 +17,7 @@ import {
   getBillPayments,
   getBills,
   getBillsSummary,
+  getBillsPendingGeneration,
   getCustomerBillByMonth,
   getCustomerMonthSummary,
   getPaymentById,
@@ -40,6 +42,16 @@ export async function getBillsSummaryHandler(
 ) {
   const query = billListQuerySchema.parse(request.query);
   const result = await getBillsSummary(request.server, query);
+
+  return reply.send(result);
+}
+
+export async function getBillsPendingGenerationHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const query = pendingBillGenerationQuerySchema.parse(request.query);
+  const result = await getBillsPendingGeneration(request.server, query);
 
   return reply.send(result);
 }

@@ -15,3 +15,27 @@ export function businessToday() {
     timeZone: BUSINESS_TIME_ZONE,
   }).format(new Date());
 }
+
+// The month whose bills are being collected. Bills go out on the last day of a month and
+// are settled through the first half of the next one, so for most of the month the figures
+// worth seeing are the previous month's, not the one that has barely started.
+export function previousBusinessMonth(): { month: number; year: number } {
+  const [year = 0, month = 1] = businessToday().split("-").map(Number);
+
+  return month === 1
+    ? { month: 12, year: year - 1 }
+    : { month: month - 1, year };
+}
+
+export function formatBusinessMonth({
+  month,
+  year,
+}: {
+  month: number;
+  year: number;
+}) {
+  return new Date(year, month - 1).toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
+}

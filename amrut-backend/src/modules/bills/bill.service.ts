@@ -11,6 +11,8 @@ import {
   moneyChange,
 } from "../audit/audit.util";
 import type {
+  PendingBillGenerationItem,
+  PendingBillGenerationResponse,
   BillCardAssignmentSummaryResponse,
   BillCarriedForwardInfo,
   BillCustomerSummaryResponse,
@@ -416,6 +418,7 @@ export async function getBillsSummary(
         otherItemsTotal: true,
         grandTotal: true,
         previousDue: true,
+        carriedForwardAmount: true,
         totalPaid: true,
         outstandingAmount: true,
       },
@@ -440,6 +443,15 @@ export async function getBillsSummary(
     // bills. Subtracting `previousDue` gives what was actually billed in this
     // period, so the figure cannot be inflated by a rolled-over balance.
     grandTotal: (totals._sum.grandTotal ?? 0) - (totals._sum.previousDue ?? 0),
+    // What the bills themselves say, carried-over balance included: the sum a
+    // month's bills were handed out for. Only this figure settles against the
+    // month, as `billedAmount - totalPaid - carriedForwardAmount = outstanding`.
+    billedAmount: totals._sum.grandTotal ?? 0,
+    // The two figures that make that sum come out: how much of what was billed was
+    // already owed before the month started, and how much of what is still owed has
+    // moved onto a later bill. Without them a reader is left with a gap to explain.
+    previousDue: totals._sum.previousDue ?? 0,
+    carriedForwardAmount: totals._sum.carriedForwardAmount ?? 0,
     totalPaid: totals._sum.totalPaid ?? 0,
     outstandingAmount: totals._sum.outstandingAmount ?? 0,
   };
@@ -550,6 +562,116 @@ export async function getCustomerMonthSummary(
     billId: null,
     billNumber: null,
     billVersion: null,
+  };
+}
+
+/**
+ * Cards that still need a bill for a month.
+ *
+ * A month's bills are generated card by card, so it is easy to stop partway and never
+ * notice: the bills screen only ever showed the bills that exist, never the ones that
+ * do not. A customer appears here when they have no bill for the month and either bought
+ * something during it or still owes an earlier balance that a new bill would carry.
+ *
+ * The figures are what generating the bill would produce today, priced by the same
+ * helpers generation uses, so the list doubles as a total of what is still to be billed.
+ */
+export async function getBillsPendingGeneration(
+  app: FastifyInstance,
+  query: { month: number; year: number },
+): Promise<PendingBillGenerationResponse> {
+  const prisma = getPrisma(app);
+  const { month, year } = query;
+
+  const monthStart = new Date(Date.UTC(year, month - 1, 1));
+  const monthEnd = new Date(Date.UTC(year, month, 1));
+
+  const [billedThisMonth, customers, ledgers, openBills] = await Promise.all([
+    prisma.bill.findMany({ where: { month, year }, select: { customerId: true } }),
+
+    prisma.customer.findMany({
+      where: { status: "active" },
+      select: {
+        id: true,
+        fullName: true,
+        cardAssignments: {
+          where: { unassignedAt: null },
+          select: { card: { select: { cardNumber: true } } },
+          take: 1,
+        },
+      },
+    }),
+
+    prisma.dailyLedger.findMany({
+      where: { ledgerDate: { gte: monthStart, lt: monthEnd } },
+      select: { customerId: true, entries: true },
+    }),
+
+    prisma.bill.findMany({
+      where: { outstandingAmount: { gt: 0 } },
+      select: { customerId: true, month: true, year: true, outstandingAmount: true },
+    }),
+  ]);
+
+  const alreadyBilled = new Set(
+    billedThisMonth.map((bill: { customerId: string }) => bill.customerId),
+  );
+
+  const ledgersByCustomer = new Map<string, { entries?: unknown }[]>();
+  for (const ledger of ledgers) {
+    const forCustomer = ledgersByCustomer.get(ledger.customerId) ?? [];
+    forCustomer.push(ledger);
+    ledgersByCustomer.set(ledger.customerId, forCustomer);
+  }
+
+  const openByCustomer = new Map<string, typeof openBills>();
+  for (const bill of openBills) {
+    const forCustomer = openByCustomer.get(bill.customerId) ?? [];
+    forCustomer.push(bill);
+    openByCustomer.set(bill.customerId, forCustomer);
+  }
+
+  const items: PendingBillGenerationItem[] = [];
+
+  for (const customer of customers) {
+    if (alreadyBilled.has(customer.id)) continue;
+
+    const theirLedgers = ledgersByCustomer.get(customer.id) ?? [];
+
+    // A day marked "no purchase" is a recorded day but not a reason to bill.
+    const withEntries = theirLedgers.filter(
+      (ledger) => Array.isArray(ledger.entries) && ledger.entries.length > 0,
+    );
+
+    const { currentCharges } = summariseLedgersForBill(withEntries);
+
+    const previousDue = sumCarriedForward(
+      selectBillsToCarryForward(openByCustomer.get(customer.id) ?? [], month, year),
+    );
+
+    // Nothing bought and nothing owed means there is no bill to generate.
+    if (currentCharges === 0 && previousDue === 0) continue;
+
+    items.push({
+      customerId: customer.id,
+      customerName: customer.fullName,
+      cardNumber: customer.cardAssignments[0]?.card.cardNumber ?? null,
+      entryDays: withEntries.length,
+      currentCharges,
+      previousDue,
+      estimatedTotal: currentCharges + previousDue,
+    });
+  }
+
+  // Card order, the order the physical cards sit in. Cards yet to be assigned last.
+  items.sort((a, b) => (a.cardNumber ?? Infinity) - (b.cardNumber ?? Infinity));
+
+  return {
+    month,
+    year,
+    totalPending: items.length,
+    estimatedTotal: items.reduce((sum, item) => sum + item.estimatedTotal, 0),
+    items,
   };
 }
 

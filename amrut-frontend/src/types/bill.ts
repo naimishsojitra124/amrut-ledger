@@ -121,7 +121,14 @@ export interface BillSummaryResponse {
   totalItemsCount: number;
   otherItemsTotal: number;
 
+  /** Billed in this period alone, with any carried-over balance taken back out. */
   grandTotal: number;
+  /** What the bills were handed out for, carried-over balance included. */
+  billedAmount: number;
+  /** How much of `billedAmount` was already owed before the period began. */
+  previousDue: number;
+  /** How much of what is still owed has moved onto a later bill. */
+  carriedForwardAmount: number;
   totalPaid: number;
   outstandingAmount: number;
 }
@@ -259,4 +266,23 @@ export interface CustomerMonthSummaryResponse {
   billId: string | null;
   billNumber: string | null;
   billVersion: number | null;
+}
+
+export interface PendingBillGenerationItem {
+  customerId: string;
+  customerName: string;
+  cardNumber: number | null;
+  /** Days in the month with something recorded. */
+  entryDays: number;
+  currentCharges: number;
+  previousDue: number;
+  estimatedTotal: number;
+}
+
+export interface PendingBillGenerationResponse {
+  month: number;
+  year: number;
+  totalPending: number;
+  estimatedTotal: number;
+  items: PendingBillGenerationItem[];
 }

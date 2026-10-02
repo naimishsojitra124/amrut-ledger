@@ -16,6 +16,9 @@ export type AuditLogType =
   | "entry_updated"
   | "entry_deleted"
   | "bill_generated"
+  | "bill_updated"
+  | "opening_balance_set"
+  | "opening_balance_removed"
   | "payment_added"
   | "payment_reversed"
   | "note_added";

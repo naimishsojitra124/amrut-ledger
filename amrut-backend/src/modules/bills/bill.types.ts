@@ -104,6 +104,9 @@ export interface BillSummaryResponse {
   totalItemsCount: number;
   otherItemsTotal: number;
   grandTotal: number;
+  billedAmount: number;
+  previousDue: number;
+  carriedForwardAmount: number;
   totalPaid: number;
   outstandingAmount: number;
 }
@@ -242,4 +245,23 @@ export interface CustomerMonthSummaryResponse {
   billId: string | null;
   billNumber: string | null;
   billVersion: number | null;
+}
+
+export interface PendingBillGenerationItem {
+  customerId: string;
+  customerName: string;
+  cardNumber: number | null;
+  /** Days in the month with something recorded, so a half-month is visible as one. */
+  entryDays: number;
+  currentCharges: number;
+  previousDue: number;
+  estimatedTotal: number;
+}
+
+export interface PendingBillGenerationResponse {
+  month: number;
+  year: number;
+  totalPending: number;
+  estimatedTotal: number;
+  items: PendingBillGenerationItem[];
 }

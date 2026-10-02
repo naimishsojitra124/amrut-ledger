@@ -8,6 +8,7 @@ import {
   getBillPaymentsHandler,
   getBillsHandler,
   getBillsSummaryHandler,
+  getBillsPendingGenerationHandler,
   getCustomerBillByMonthHandler,
   getCustomerMonthSummaryHandler,
   getPaymentByIdHandler,
@@ -26,6 +27,13 @@ export const billRoutes: FastifyPluginAsync = async (app) => {
 
   app.get("/bills/summary", { preHandler: canViewBills }, getBillsSummaryHandler);
   app.get("/bills/overdue", { preHandler: canViewBills }, getOverdueBillsHandler);
+
+  // Must sit above "/bills/:billId" so the literal path is not read as an id.
+  app.get(
+    "/bills/pending-generation",
+    { preHandler: canViewBills },
+    getBillsPendingGenerationHandler,
+  );
   app.get("/bills", { preHandler: canViewBills }, getBillsHandler);
   app.get("/bills/:billId", { preHandler: canViewBills }, getBillByIdHandler);
   app.get("/bills/:billId/payments", { preHandler: canViewPayments }, getBillPaymentsHandler);
